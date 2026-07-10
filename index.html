@@ -114,7 +114,15 @@
   <!-- PAINEL -->
   <div id="tab-painel">
     <div class="card">
-      <div class="label">Saldo do mês</div>
+      <div class="label">Período</div>
+      <div class="row" style="gap:8px; margin-top:4px">
+        <input id="p-de" type="date" style="flex:1">
+        <input id="p-ate" type="date" style="flex:1">
+      </div>
+      <button class="btn-outline" id="btn-ciclo" style="margin-top:10px">Ciclo atual da fatura</button>
+    </div>
+    <div class="card">
+      <div class="label">Saldo do período</div>
       <div class="big mono" id="saldo">—</div>
     </div>
     <div class="grid2">
@@ -129,6 +137,10 @@
       <div class="row"><div class="label">Metas do mês</div><button class="logout" id="btn-goals-edit">editar</button></div>
       <div id="goals-view"></div>
       <div id="goals-edit" class="hidden"></div>
+    </div>
+    <div class="card">
+      <div class="label">Previsão de gastos fixos (mensal)</div>
+      <div id="forecast"></div>
     </div>
   </div>
 
@@ -196,7 +208,24 @@ const $ = id => document.getElementById(id);
 const fmt = n => 'R$ ' + Number(n).toLocaleString('pt-BR', {minimumFractionDigits:2});
 const hoje = () => new Date().toISOString().slice(0,10);
 
-let TX = [], GOALS = {}, form = { type:'expense', category:CATS[0] };
+let TX = [], GOALS = {}, FORECAST = [], form = { type:'expense', category:CATS[0] };
+
+// Ciclo da fatura: inicia dia 12, termina dia 11 do mês seguinte
+const CYCLE_START_DAY = 12;
+function cicloAtual() {
+  const now = new Date();
+  let from, to;
+  if (now.getDate() >= CYCLE_START_DAY) {
+    from = new Date(now.getFullYear(), now.getMonth(), CYCLE_START_DAY);
+    to = new Date(now.getFullYear(), now.getMonth()+1, CYCLE_START_DAY-1);
+  } else {
+    from = new Date(now.getFullYear(), now.getMonth()-1, CYCLE_START_DAY);
+    to = new Date(now.getFullYear(), now.getMonth(), CYCLE_START_DAY-1);
+  }
+  const iso = d => new Date(d.getTime()-d.getTimezoneOffset()*60000).toISOString().slice(0,10);
+  return { from: iso(from), to: iso(to) };
+}
+let PERIOD = cicloAtual();
 
 // ---------- Auth ----------
 async function boot() {
@@ -221,18 +250,22 @@ $('btn-logout').onclick = async () => { await sb.auth.signOut(); location.reload
 
 // ---------- Dados ----------
 async function load() {
-  const [t, g] = await Promise.all([
+  const [t, g, f] = await Promise.all([
     sb.from('transactions').select('*').order('date',{ascending:false}).limit(3000),
     sb.from('goals').select('*'),
+    sb.from('forecasts').select('*'),
   ]);
   TX = t.data || [];
   GOALS = {}; (g.data||[]).forEach(x => GOALS[x.category] = Number(x.amount));
+  FORECAST = f.data || [];
   render();
 }
 
 function render() {
-  const mes = hoje().slice(0,7);
-  const mtx = TX.filter(t => (t.date||'').slice(0,7) === mes);
+  $('p-de').value = PERIOD.from;
+  $('p-ate').value = PERIOD.to;
+  $('periodo').textContent = 'PER\u00cdODO ' + PERIOD.from.split('-').reverse().join('/') + ' \u2192 ' + PERIOD.to.split('-').reverse().join('/');
+  const mtx = TX.filter(t => (t.date||'') >= PERIOD.from && (t.date||'') <= PERIOD.to);
   const rec = mtx.filter(t=>t.type==='income').reduce((s,t)=>s+Number(t.value),0);
   const desp = mtx.filter(t=>t.type==='expense').reduce((s,t)=>s+Number(t.value),0);
   const saldo = rec - desp;
@@ -267,7 +300,19 @@ function render() {
       <span style="flex:1; overflow:hidden; text-overflow:ellipsis; white-space:nowrap">${t.desc||''}</span>
       <span class="mono ${t.type==='income'?'green':'red'}">${t.type==='income'?'+':'-'}${fmt(t.value)}</span>
     </div>`).join('');
+
+  const fixosPeriodo = mtx.filter(t=>t.type==='expense' && t.source==='contas_fixas').reduce((s,t)=>s+Number(t.value),0);
+  const prevTotal = FORECAST.reduce((s,f)=>s+Number(f.amount),0);
+  $('forecast').innerHTML = FORECAST.length ?
+    FORECAST.map(f => `<div class="row" style="font-size:13px; margin-top:8px"><span>${f.desc}</span><span class="mono dim">${fmt(f.amount)}</span></div>`).join('') +
+    `<div class="row" style="font-size:13px; margin-top:12px; padding-top:10px; border-top:1px solid var(--line)"><span><b>Total previsto</b></span><span class="mono gold">${fmt(prevTotal)}</span></div>` +
+    `<div class="row" style="font-size:13px; margin-top:6px"><span>Fixos lançados no período</span><span class="mono ${fixosPeriodo>prevTotal?'red':'green'}">${fmt(fixosPeriodo)}</span></div>`
+    : '<div class="msg">Nenhuma previsão cadastrada.</div>';
 }
+
+$('p-de').addEventListener('change', () => { PERIOD.from = $('p-de').value; render(); });
+$('p-ate').addEventListener('change', () => { PERIOD.to = $('p-ate').value; render(); });
+$('btn-ciclo').addEventListener('click', () => { PERIOD = cicloAtual(); render(); });
 
 window.delTx = async (id) => {
   if (!confirm('Excluir este lançamento?')) return;
