@@ -286,15 +286,18 @@ $('btn-save-split').onclick=async()=>{
 };
 window.delTx=async(id)=>{if(!confirm('Excluir este lançamento?'))return;await sb.from('transactions').delete().eq('id',id);load();};
 // Editable forecasts
-function setupEditableTable(viewId,editId,btnId,table,descCol,amountCol){
+function setupEditableTable(viewId,editId,btnId,table){
   $(btnId).onclick=()=>{
     const ed=$(editId);if(!ed.classList.contains('hidden')){ed.classList.add('hidden');return;}
     const data=table==='forecasts'?FC:INC;
-    ed.innerHTML=data.map((r,i)=>`<div class="row" style="margin-top:6px"><input data-i="${i}" data-f="desc" value="${r.desc}" style="flex:2;margin-top:0;font-size:12px"><input data-i="${i}" data-f="amt" inputmode="decimal" value="${r.amount}" style="flex:1;margin-top:0;font-size:12px"></div>`).join('')+
+    const removed=[];
+    ed.innerHTML=data.map((r,i)=>`<div class="row fc-row" data-orig="${r.desc}" style="margin-top:6px"><input data-i="${i}" data-f="desc" value="${r.desc}" style="flex:2;margin-top:0;font-size:12px"><input data-i="${i}" data-f="amt" inputmode="decimal" value="${r.amount}" style="flex:1;margin-top:0;font-size:12px"><button class="btn-sm fc-del" style="color:var(--red)">✕</button></div>`).join('')+
     `<div class="row" style="margin-top:6px"><input id="${editId}-nd" placeholder="Nova descrição" style="flex:2;margin-top:0;font-size:12px"><input id="${editId}-na" placeholder="Valor" inputmode="decimal" style="flex:1;margin-top:0;font-size:12px"></div>`+
     `<button class="btn" id="${editId}-save">Salvar</button>`;
     ed.classList.remove('hidden');
+    ed.querySelectorAll('.fc-del').forEach(btn=>btn.onclick=()=>{const row=btn.closest('.fc-row');removed.push(row.dataset.orig);row.remove();});
     document.getElementById(`${editId}-save`).onclick=async()=>{
+      for(const desc of removed)await sb.from(table).delete().eq('desc',desc);
       const rows=[...ed.querySelectorAll('[data-i]')].reduce((acc,el)=>{const i=el.dataset.i;if(!acc[i])acc[i]={};acc[i][el.dataset.f]=el.value;return acc;},{});
       const updates=Object.values(rows).filter(r=>r.desc&&r.amt).map(r=>({desc:r.desc,amount:parseFloat((r.amt||'0').replace(',','.'))||0}));
       const nd=document.getElementById(`${editId}-nd`).value.trim();const na=document.getElementById(`${editId}-na`).value;
