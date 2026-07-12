@@ -181,7 +181,7 @@ const $=id=>document.getElementById(id);
 const fmt=n=>'R$ '+Number(n).toLocaleString('pt-BR',{minimumFractionDigits:2});
 const hoje=()=>new Date().toISOString().slice(0,10);
 let TX=[],GOALS={},FC=[],INC=[],PEOPLE=[],SPLITS={},form={type:'expense',category:CATS[0]};
-const CYCLE=12;
+const CYCLE=11;
 function cicloAtual(){const n=new Date();let f,t;if(n.getDate()>=CYCLE){f=new Date(n.getFullYear(),n.getMonth(),CYCLE);t=new Date(n.getFullYear(),n.getMonth()+1,CYCLE-1);}else{f=new Date(n.getFullYear(),n.getMonth()-1,CYCLE);t=new Date(n.getFullYear(),n.getMonth(),CYCLE-1);}const iso=d=>new Date(d.getTime()-d.getTimezoneOffset()*60000).toISOString().slice(0,10);return{from:iso(f),to:iso(t)};}
 let PERIOD=cicloAtual();
 async function boot(){const{data:{session}}=await sb.auth.getSession();if(session)showApp();else showLogin();}
