@@ -1,3 +1,4 @@
+ · HTML
 <!DOCTYPE html>
 <html lang="pt-BR">
 <head>
@@ -333,7 +334,7 @@ h+=`<tr>
 <td><select data-id="${t.id}" data-f="type" class="row-edit"><option value="expense" ${t.type==='expense'?'selected':''}>Desp.</option><option value="income" ${t.type==='income'?'selected':''}>Rec.</option></select></td>
 <td><select data-id="${t.id}" data-f="nature" class="row-edit"><option value="fixa" ${t.nature==='fixa'?'selected':''}>Fixa</option><option value="variavel" ${t.nature!=='fixa'?'selected':''}>Var.</option></select></td>
 <td><select data-id="${t.id}" data-f="category" class="row-edit">${CATS.map(c=>`<option value="${c}" ${c===t.category?'selected':''}>${c}</option>`).join('')}<option value="__new__">+ Nova...</option></select></td>
-<td><select data-id="${t.id}" data-f="payment_method" class="row-edit">${PAY_METHODS.map(p=>`<option value="${p}" ${p===t.payment_method?'selected':''}>${p}</option>`).join('')}${t.payment_method&&!PAY_METHODS.includes(t.payment_method)?`<option value="${t.payment_method}" selected>${t.payment_method}</option>`:''}</select></td>
+<td><select data-id="${t.id}" data-f="payment_method" class="row-edit"><option value="" ${!t.payment_method?'selected':''}>—</option>${PAY_METHODS.map(p=>`<option value="${p}" ${p===t.payment_method?'selected':''}>${p}</option>`).join('')}${t.payment_method&&!PAY_METHODS.includes(t.payment_method)?`<option value="${t.payment_method}" selected>${t.payment_method}</option>`:''}</select></td>
 <td style="text-align:center"><input type="checkbox" data-id="${t.id}" data-f="is_investment" class="row-edit-chk" ${t.is_investment?'checked':''}></td>
 <td><button class="btn-sm" onclick="openSplit('${t.id}')">÷</button> <button class="btn-sm" style="color:var(--red)" onclick="delTx('${t.id}')">✕</button></td>
 </tr>`;
@@ -524,3 +525,4 @@ boot();
 </script>
 </body>
 </html>
+ 
