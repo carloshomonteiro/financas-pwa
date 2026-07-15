@@ -15,6 +15,13 @@
 body { background:var(--bg); color:var(--ink); font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif; background-image:linear-gradient(rgba(28,59,82,.14) 1px,transparent 1px),linear-gradient(90deg,rgba(28,59,82,.14) 1px,transparent 1px); background-size:24px 24px; min-height:100vh; padding-bottom:calc(64px + env(safe-area-inset-bottom)); }
 .mono { font-family:ui-monospace,"SF Mono",Menlo,monospace; }
 .wrap { max-width:600px; margin:0 auto; padding:14px; padding-top:calc(14px + env(safe-area-inset-top)); }
+@media (min-width:680px){ .wrap{max-width:820px;} }
+@media (min-width:1000px){ .wrap{max-width:1100px;} }
+@media (min-width:1300px){ .wrap{max-width:1320px;} }
+.tabbar-inner { max-width:600px; margin:0 auto; display:flex; width:100%; }
+@media (min-width:680px){ .tabbar-inner{max-width:820px;} }
+@media (min-width:1000px){ .tabbar-inner{max-width:1100px;} }
+@media (min-width:1300px){ .tabbar-inner{max-width:1320px;} }
 .titleblock { border:1px solid var(--line); padding:12px 16px; margin-bottom:12px; }
 .eyebrow { color:var(--gold); font-size:10px; letter-spacing:2px; }
 .title { font-size:18px; font-weight:600; margin-top:2px; }
@@ -38,7 +45,7 @@ input:focus,select:focus { border-color:var(--gold); }
 .bar-track { height:5px; background:var(--bg); margin-top:4px; border-radius:2px; overflow:hidden; }
 .bar-fill { height:100%; background:var(--gold); }
 .msg { font-size:12px; color:var(--dim); margin-top:8px; min-height:16px; }
-.tabbar { position:fixed; bottom:0; left:0; right:0; display:flex; background:var(--sheet); border-top:1px solid var(--line); padding-bottom:env(safe-area-inset-bottom); z-index:10; overflow-x:auto; }
+.tabbar { position:fixed; bottom:0; left:0; right:0; background:var(--sheet); border-top:1px solid var(--line); padding-bottom:env(safe-area-inset-bottom); z-index:10; }
 .tab { flex:1; text-align:center; padding:13px 4px 10px; color:var(--dim); font-size:11px; cursor:pointer; border:none; background:none; white-space:nowrap; }
 .tab.on { color:var(--gold); }
 .bubble { padding:12px; margin-bottom:8px; border-radius:4px; font-size:14px; line-height:1.5; max-width:90%; white-space:pre-wrap; }
@@ -143,6 +150,7 @@ table.tx-table .split-badge { display:inline-block; background:var(--line); colo
 <input id="f-data" type="date">
 <div class="chips" id="f-tipo"><button class="chip on" data-v="expense">Despesa</button><button class="chip" data-v="income">Receita</button></div>
 <select id="f-nature"><option value="variavel">Variável</option><option value="fixa">Fixa</option></select>
+<select id="f-pay"></select>
 <div class="row" style="margin-top:10px;gap:6px;align-items:center;justify-content:flex-start">
 <input type="checkbox" id="f-invest" style="width:auto;margin-top:0">
 <span style="font-size:12px">É investimento (não conta como despesa)</span>
@@ -172,11 +180,13 @@ table.tx-table .split-badge { display:inline-block; background:var(--line); colo
 </div>
 </div>
 <div class="tabbar">
+<div class="tabbar-inner">
 <button class="tab on" data-tab="painel">Painel</button>
 <button class="tab" data-tab="lancar">Lançar</button>
 <button class="tab" data-tab="previsoes">Previsões</button>
 <button class="tab" data-tab="historico">Histórico</button>
 <button class="tab" data-tab="perguntar">Perguntar</button>
+</div>
 </div>
 </div>
 <div id="modal-split" class="hidden" style="position:fixed;inset:0;background:rgba(0,0,0,.7);z-index:20;display:flex;align-items:center;justify-content:center">
@@ -202,6 +212,7 @@ const SB_URL='https://liyvselfbeuosdcifybp.supabase.co';
 const SB_KEY='sb_publishable_ALciIAXd79y_flcDKvsgzA_t84qYiXz';
 const FN_URL=SB_URL+'/functions/v1/gemini';
 let CATS=['Outros'];
+const PAY_METHODS=['PIX','Débito','Cartão de Crédito','Crédito em conta','TED','DOC','Boleto','Dinheiro','Outro'];
 const sb=createClient(SB_URL,SB_KEY);
 const $=id=>document.getElementById(id);
 const fmt=n=>'R$ '+Number(n).toLocaleString('pt-BR',{minimumFractionDigits:2});
@@ -310,7 +321,7 @@ await sb.from('audit_log').insert({transaction_id:a.transaction_id,action:'resto
 load();
 };
 function buildTxTable(rows){
-let h='<table class="tx-table"><tr><th>Data</th><th>Descrição</th><th>Valor</th><th>Tipo</th><th>Nat.</th><th>Categoria</th><th>Inv.</th><th></th></tr>';
+let h='<table class="tx-table"><tr><th>Data</th><th>Descrição</th><th>Valor</th><th>Tipo</th><th>Nat.</th><th>Categoria</th><th>Forma</th><th>Inv.</th><th></th></tr>';
 rows.forEach(t=>{
 const sp=SPLITS[t.id]||[];
 const splitBadges=sp.map(s=>`<span class="split-badge">${s.people?.name||'?'}: ${fmt(s.amount)}</span>`).join(' ');
@@ -322,6 +333,7 @@ h+=`<tr>
 <td><select data-id="${t.id}" data-f="type" class="row-edit"><option value="expense" ${t.type==='expense'?'selected':''}>Desp.</option><option value="income" ${t.type==='income'?'selected':''}>Rec.</option></select></td>
 <td><select data-id="${t.id}" data-f="nature" class="row-edit"><option value="fixa" ${t.nature==='fixa'?'selected':''}>Fixa</option><option value="variavel" ${t.nature!=='fixa'?'selected':''}>Var.</option></select></td>
 <td><select data-id="${t.id}" data-f="category" class="row-edit">${CATS.map(c=>`<option value="${c}" ${c===t.category?'selected':''}>${c}</option>`).join('')}<option value="__new__">+ Nova...</option></select></td>
+<td><select data-id="${t.id}" data-f="payment_method" class="row-edit">${PAY_METHODS.map(p=>`<option value="${p}" ${p===t.payment_method?'selected':''}>${p}</option>`).join('')}${t.payment_method&&!PAY_METHODS.includes(t.payment_method)?`<option value="${t.payment_method}" selected>${t.payment_method}</option>`:''}</select></td>
 <td style="text-align:center"><input type="checkbox" data-id="${t.id}" data-f="is_investment" class="row-edit-chk" ${t.is_investment?'checked':''}></td>
 <td><button class="btn-sm" onclick="openSplit('${t.id}')">÷</button> <button class="btn-sm" style="color:var(--red)" onclick="delTx('${t.id}')">✕</button></td>
 </tr>`;
@@ -381,12 +393,13 @@ return{
 'Tipo':t.type==='income'?'Receita':'Despesa',
 'Natureza':t.nature==='fixa'?'Fixa':'Variável',
 'Categoria':t.category||'',
+'Forma de Pagamento':t.payment_method||'',
 'Investimento':t.is_investment?'Sim':'Não',
 'Divisão':splitTxt,
 };
 });
 const ws=XLSX.utils.json_to_sheet(rows);
-ws['!cols']=[{wch:12},{wch:36},{wch:12},{wch:12},{wch:10},{wch:10},{wch:16},{wch:12},{wch:30}];
+ws['!cols']=[{wch:12},{wch:36},{wch:12},{wch:12},{wch:10},{wch:10},{wch:16},{wch:16},{wch:12},{wch:30}];
 const wb=XLSX.utils.book_new();
 XLSX.utils.book_append_sheet(wb,ws,'Transações');
 XLSX.writeFile(wb,`transacoes_${PERIOD.from}_a_${PERIOD.to}.xlsx`);
@@ -462,6 +475,9 @@ ed.classList.remove('hidden');
 $('btn-goals-save').onclick=async()=>{const rows=[...ed.querySelectorAll('input')].map(i=>({category:i.dataset.cat,amount:parseFloat((i.value||'0').replace(',','.'))||0}));await sb.from('goals').upsert(rows,{onConflict:'category'});ed.classList.add('hidden');load();};
 };
 $('f-data').value=hoje();
+$('f-pay').innerHTML=PAY_METHODS.map(p=>`<option value="${p}" ${p==='PIX'?'selected':''}>${p}</option>`).join('');
+form.paymentMethod='PIX';
+$('f-pay').onchange=()=>{form.paymentMethod=$('f-pay').value;};
 $('f-tipo').onclick=e=>{if(!e.target.dataset.v)return;form.type=e.target.dataset.v;[...$('f-tipo').children].forEach(c=>c.classList.toggle('on',c===e.target));};
 $('f-cat').onclick=e=>{if(!e.target.dataset.v)return;form.category=e.target.dataset.v;[...$('f-cat').children].forEach(c=>c.classList.toggle('on',c.dataset.v===form.category));};
 $('f-nature').onchange=()=>{form.nature=$('f-nature').value;};
@@ -484,7 +500,7 @@ $('btn-save').onclick=async()=>{
 const valor=parseFloat(($('f-valor').value||'').replace(',','.'));
 if(!$('f-desc').value||isNaN(valor)||valor<=0){$('save-msg').textContent='Preencha descrição e valor válidos.';return;}
 $('btn-save').disabled=true;
-const{data:inserted,error}=await sb.from('transactions').insert({desc:$('f-desc').value,value:valor,type:form.type,category:form.category,nature:form.nature,is_investment:form.invest,date:$('f-data').value||hoje(),source:'pwa'}).select();
+const{data:inserted,error}=await sb.from('transactions').insert({desc:$('f-desc').value,value:valor,type:form.type,category:form.category,nature:form.nature,is_investment:form.invest,date:$('f-data').value||hoje(),source:'pwa',payment_method:form.paymentMethod}).select();
 $('btn-save').disabled=false;
 if(error){$('save-msg').textContent='Erro: '+error.message;return;}
 const splitRows=[...$('split-fields').querySelectorAll('.split-row')];
