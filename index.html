@@ -103,7 +103,7 @@ table.tx-table .split-badge { display:inline-block; background:var(--line); colo
 <div id="inv-list"></div>
 </div>
 <div class="card">
-<div class="label">Transações do período</div>
+<div class="row"><div class="label">Transações do período</div><button class="btn-sm" id="btn-export">⬇ Excel</button></div>
 <div class="tx-scroll" id="tx-table"></div>
 </div>
 <div class="card">
@@ -197,6 +197,7 @@ table.tx-table .split-badge { display:inline-block; background:var(--line); colo
 </div>
 <script type="module">
 import { createClient } from 'https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/+esm';
+import * as XLSX from 'https://esm.sh/xlsx@0.18.5';
 const SB_URL='https://liyvselfbeuosdcifybp.supabase.co';
 const SB_KEY='sb_publishable_ALciIAXd79y_flcDKvsgzA_t84qYiXz';
 const FN_URL=SB_URL+'/functions/v1/gemini';
@@ -366,6 +367,30 @@ await logAndUpdate(id,f,v);
 $('p-de').addEventListener('change',()=>{PERIOD.from=$('p-de').value;render();});
 $('p-ate').addEventListener('change',()=>{PERIOD.to=$('p-ate').value;render();});
 $('btn-ciclo').addEventListener('click',()=>{PERIOD=cicloAtual();render();});
+$('btn-export').addEventListener('click',()=>{
+const mtx=TX.filter(t=>!t.deleted&&(t.date||'')>=PERIOD.from&&(t.date||'')<=PERIOD.to).sort((a,b)=>(a.date||'').localeCompare(b.date||''));
+if(!mtx.length){alert('Não há transações no período selecionado.');return;}
+const rows=mtx.map(t=>{
+const sp=SPLITS[t.id]||[];
+const splitTxt=sp.map(s=>`${s.people?.name||'?'}: ${Number(s.amount).toFixed(2)}`).join('; ');
+return{
+'Data':t.date,
+'Descrição':t.desc||'',
+'Valor':Number(t.value),
+'Sinal':t.type==='income'?t.value:-t.value,
+'Tipo':t.type==='income'?'Receita':'Despesa',
+'Natureza':t.nature==='fixa'?'Fixa':'Variável',
+'Categoria':t.category||'',
+'Investimento':t.is_investment?'Sim':'Não',
+'Divisão':splitTxt,
+};
+});
+const ws=XLSX.utils.json_to_sheet(rows);
+ws['!cols']=[{wch:12},{wch:36},{wch:12},{wch:12},{wch:10},{wch:10},{wch:16},{wch:12},{wch:30}];
+const wb=XLSX.utils.book_new();
+XLSX.utils.book_append_sheet(wb,ws,'Transações');
+XLSX.writeFile(wb,`transacoes_${PERIOD.from}_a_${PERIOD.to}.xlsx`);
+});
 window.openSplit=async(txId)=>{
 const tx=TX.find(t=>t.id===txId);if(!tx)return;
 $('modal-split-desc').textContent=`${tx.desc} — ${fmt(tx.value)}`;
