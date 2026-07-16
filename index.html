@@ -387,8 +387,14 @@ const row=TX.find(t=>t.id===id);
 const oldVal=row?row[field]:null;
 if(String(oldVal)===String(newVal))return;
 await sb.from('audit_log').insert({transaction_id:id,action:'edit',field,old_value:String(oldVal),new_value:String(newVal)});
-await sb.from('transactions').update({[field]:newVal}).eq('id',id);
-if(row)row[field]=newVal;
+const upd={[field]:newVal};
+if(field==='desc'||field==='payment_method'){
+const lf=new Set((row&&row.locked_fields)||[]);
+lf.add(field);
+upd.locked_fields=[...lf];
+}
+await sb.from('transactions').update(upd).eq('id',id);
+if(row){row[field]=newVal;if(upd.locked_fields)row.locked_fields=upd.locked_fields;}
 }
 document.addEventListener('change',async e=>{
 if(e.target.classList.contains('row-edit')){
