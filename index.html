@@ -1,4 +1,3 @@
- · HTML
 <!DOCTYPE html>
 <html lang="pt-BR">
 <head>
@@ -129,6 +128,13 @@ table.tx-table .split-badge { display:inline-block; background:var(--line); colo
 <div id="fc-view"></div><div id="fc-edit" class="hidden"></div>
 </div>
 </div>
+<div id="tab-validacao" class="hidden">
+<div class="card">
+<div class="label">Transações pendentes de validação</div>
+<div class="msg">Toda transação vinda do Open Finance cai aqui primeiro. Revise, edite e clique em Validar para que ela entre nos totais do Painel. Use "Interna" para transferências entre suas próprias contas ou reembolsos de divisão que não devem contar como receita/despesa.</div>
+<div class="tx-scroll" id="validation-table"></div>
+</div>
+</div>
 <div id="tab-historico" class="hidden">
 <div class="card">
 <div class="label">Histórico de alterações e exclusões</div>
@@ -185,6 +191,7 @@ table.tx-table .split-badge { display:inline-block; background:var(--line); colo
 <button class="tab on" data-tab="painel">Painel</button>
 <button class="tab" data-tab="lancar">Lançar</button>
 <button class="tab" data-tab="previsoes">Previsões</button>
+<button class="tab" data-tab="validacao">Validação<span id="val-count" class="hidden" style="background:var(--gold);color:var(--bg);border-radius:8px;padding:1px 5px;font-size:9px;margin-left:3px;font-weight:700"></span></button>
 <button class="tab" data-tab="historico">Histórico</button>
 <button class="tab" data-tab="perguntar">Perguntar</button>
 </div>
@@ -218,7 +225,7 @@ const sb=createClient(SB_URL,SB_KEY);
 const $=id=>document.getElementById(id);
 const fmt=n=>'R$ '+Number(n).toLocaleString('pt-BR',{minimumFractionDigits:2});
 const hoje=()=>new Date().toISOString().slice(0,10);
-let TX=[],GOALS={},FC=[],INC=[],PEOPLE=[],SPLITS={},AUDIT=[],form={type:'expense',category:'Outros',nature:'variavel',invest:false};
+let TX=[],GOALS={},FC=[],INC=[],PEOPLE=[],SPLITS={},AUDIT=[],PENDING=[],form={type:'expense',category:'Outros',nature:'variavel',invest:false};
 const CYCLE=11;
 function cicloAtual(){const n=new Date();let f,t;if(n.getDate()>=CYCLE){f=new Date(n.getFullYear(),n.getMonth(),CYCLE);t=new Date(n.getFullYear(),n.getMonth()+1,CYCLE-1);}else{f=new Date(n.getFullYear(),n.getMonth()-1,CYCLE);t=new Date(n.getFullYear(),n.getMonth(),CYCLE-1);}const iso=d=>new Date(d.getTime()-d.getTimezoneOffset()*60000).toISOString().slice(0,10);return{from:iso(f),to:iso(t)};}
 let PERIOD=cicloAtual();
@@ -256,6 +263,8 @@ TX=t.data||[];GOALS={};(g.data||[]).forEach(x=>GOALS[x.category]=Number(x.amount
 FC=f.data||[];INC=ic.data||[];PEOPLE=p.data||[];
 CATS=(c.data||[]).map(x=>x.name);if(!CATS.length)CATS=['Outros'];
 AUDIT=au.data||[];
+PENDING=TX.filter(t=>!t.deleted&&t.validated===false);
+const vc=$('val-count');if(PENDING.length){vc.textContent=PENDING.length;vc.classList.remove('hidden');}else{vc.classList.add('hidden');}
 SPLITS={};(sp.data||[]).forEach(s=>{if(!SPLITS[s.transaction_id])SPLITS[s.transaction_id]=[];SPLITS[s.transaction_id].push(s);});
 renderCatChips();
 render();
@@ -266,8 +275,8 @@ $('f-cat').innerHTML=CATS.map(c=>`<button class="chip ${c===form.category?'on':'
 function render(){
 $('p-de').value=PERIOD.from;$('p-ate').value=PERIOD.to;
 $('periodo').textContent='PERÍODO '+PERIOD.from.split('-').reverse().join('/')+' → '+PERIOD.to.split('-').reverse().join('/');
-const mtx=TX.filter(t=>!t.deleted&&(t.date||'')>=PERIOD.from&&(t.date||'')<=PERIOD.to);
-const realTx=mtx.filter(t=>!t.is_investment);
+const mtx=TX.filter(t=>!t.deleted&&t.validated!==false&&(t.date||'')>=PERIOD.from&&(t.date||'')<=PERIOD.to);
+const realTx=mtx.filter(t=>!t.is_investment&&!t.internal);
 const rec=realTx.filter(t=>t.type==='income').reduce((s,t)=>s+Number(t.value),0);
 const desp=realTx.filter(t=>t.type==='expense').reduce((s,t)=>s+Number(t.value),0);
 const saldo=rec-desp;
@@ -286,12 +295,13 @@ const gv=Object.entries(GOALS).filter(([,v])=>v>0);
 $('goals-view').innerHTML=gv.length?gv.map(([c,b])=>{const g=porCat[c]||0,p=Math.min(100,g/b*100),o=g>b;return`<div style="margin-top:10px"><div class="row" style="font-size:13px"><span>${c}</span><span class="mono ${o?'red':'dim'}">${fmt(g)} / ${fmt(b)}</span></div><div class="bar-track"><div class="bar-fill" style="width:${p.toFixed(1)}%;background:var(--${o?'red':'green'})"></div></div></div>`;}).join(''):'<div class="msg">Nenhuma meta definida.</div>';
 renderForecasts();
 renderHistorico();
+renderValidation();
 }
 function renderForecasts(){
 const incTotal=INC.reduce((s,i)=>s+Number(i.amount),0);
 $('inc-view').innerHTML=INC.length?INC.map(i=>`<div class="row" style="font-size:13px;margin-top:8px"><span>${i.desc}</span><span class="mono green">${fmt(i.amount)}</span></div>`).join('')+`<div class="row" style="font-size:13px;margin-top:12px;padding-top:10px;border-top:1px solid var(--line)"><span><b>Total previsto</b></span><span class="mono green">${fmt(incTotal)}</span></div>`:'<div class="msg">Sem previsão.</div>';
 const fcTotal=FC.reduce((s,f)=>s+Number(f.amount),0);
-const mtx=TX.filter(t=>!t.deleted&&(t.date||'')>=PERIOD.from&&(t.date||'')<=PERIOD.to);
+const mtx=TX.filter(t=>!t.deleted&&t.validated!==false&&(t.date||'')>=PERIOD.from&&(t.date||'')<=PERIOD.to);
 const fixosPer=mtx.filter(t=>t.type==='expense'&&t.nature==='fixa').reduce((s,t)=>s+Number(t.value),0);
 $('fc-view').innerHTML=FC.length?FC.map(f=>`<div class="row" style="font-size:13px;margin-top:8px"><span>${f.desc}</span><span class="mono dim">${fmt(f.amount)}</span></div>`).join('')+`<div class="row" style="font-size:13px;margin-top:12px;padding-top:10px;border-top:1px solid var(--line)"><span><b>Total previsto</b></span><span class="mono gold">${fmt(fcTotal)}</span></div><div class="row" style="font-size:13px;margin-top:6px"><span>Fixos lançados</span><span class="mono ${fixosPer>fcTotal?'red':'green'}">${fmt(fixosPer)}</span></div>`:'<div class="msg">Sem previsão.</div>';
 }
@@ -321,8 +331,9 @@ await sb.from('transactions').update({[a.field]:val}).eq('id',a.transaction_id);
 await sb.from('audit_log').insert({transaction_id:a.transaction_id,action:'restore',field:a.field,old_value:a.new_value,new_value:a.old_value});
 load();
 };
+function saldoOf(t){const sp=SPLITS[t.id]||[];const splitTotal=sp.reduce((s,x)=>s+Number(x.amount),0);return Number(t.value)-splitTotal;}
 function buildTxTable(rows){
-let h='<table class="tx-table"><tr><th>Data</th><th>Descrição</th><th>Valor</th><th>Tipo</th><th>Nat.</th><th>Categoria</th><th>Forma</th><th>Inv.</th><th></th></tr>';
+let h='<table class="tx-table"><tr><th>Data</th><th>Descrição</th><th>Valor</th><th>Saldo</th><th>Tipo</th><th>Nat.</th><th>Categoria</th><th>Forma</th><th>Inv.</th><th></th></tr>';
 rows.forEach(t=>{
 const sp=SPLITS[t.id]||[];
 const splitBadges=sp.map(s=>`<span class="split-badge">${s.people?.name||'?'}: ${fmt(s.amount)}</span>`).join(' ');
@@ -331,6 +342,7 @@ h+=`<tr>
 <td class="mono dim">${(t.date||'').split('-').reverse().join('/')}</td>
 <td><input class="row-edit-text desc-input" data-id="${t.id}" data-f="desc" value="${descVal}">${splitBadges?'<br>'+splitBadges:''}</td>
 <td class="mono ${t.type==='income'?'green':'red'}">${fmt(t.value)}</td>
+<td class="mono dim">${fmt(saldoOf(t))}</td>
 <td><select data-id="${t.id}" data-f="type" class="row-edit"><option value="expense" ${t.type==='expense'?'selected':''}>Desp.</option><option value="income" ${t.type==='income'?'selected':''}>Rec.</option></select></td>
 <td><select data-id="${t.id}" data-f="nature" class="row-edit"><option value="fixa" ${t.nature==='fixa'?'selected':''}>Fixa</option><option value="variavel" ${t.nature!=='fixa'?'selected':''}>Var.</option></select></td>
 <td><select data-id="${t.id}" data-f="category" class="row-edit">${CATS.map(c=>`<option value="${c}" ${c===t.category?'selected':''}>${c}</option>`).join('')}<option value="__new__">+ Nova...</option></select></td>
@@ -341,6 +353,35 @@ h+=`<tr>
 });
 return h+'</table>';
 }
+function buildValidationTable(rows){
+let h='<table class="tx-table"><tr><th>Data</th><th>Descrição</th><th>Valor</th><th>Saldo</th><th>Tipo</th><th>Nat.</th><th>Categoria</th><th>Forma</th><th>Interna</th><th></th></tr>';
+rows.forEach(t=>{
+const sp=SPLITS[t.id]||[];
+const splitBadges=sp.map(s=>`<span class="split-badge">${s.people?.name||'?'}: ${fmt(s.amount)}</span>`).join(' ');
+const descVal=(t.desc||'').replace(/"/g,'&quot;');
+h+=`<tr>
+<td class="mono dim">${(t.date||'').split('-').reverse().join('/')}</td>
+<td><input class="row-edit-text desc-input" data-id="${t.id}" data-f="desc" value="${descVal}">${splitBadges?'<br>'+splitBadges:''}</td>
+<td class="mono ${t.type==='income'?'green':'red'}">${fmt(t.value)}</td>
+<td class="mono dim">${fmt(saldoOf(t))}</td>
+<td><select data-id="${t.id}" data-f="type" class="row-edit"><option value="expense" ${t.type==='expense'?'selected':''}>Desp.</option><option value="income" ${t.type==='income'?'selected':''}>Rec.</option></select></td>
+<td><select data-id="${t.id}" data-f="nature" class="row-edit"><option value="fixa" ${t.nature==='fixa'?'selected':''}>Fixa</option><option value="variavel" ${t.nature!=='fixa'?'selected':''}>Var.</option></select></td>
+<td><select data-id="${t.id}" data-f="category" class="row-edit">${CATS.map(c=>`<option value="${c}" ${c===t.category?'selected':''}>${c}</option>`).join('')}<option value="__new__">+ Nova...</option></select></td>
+<td><select data-id="${t.id}" data-f="payment_method" class="row-edit"><option value="" ${!t.payment_method?'selected':''}>—</option>${PAY_METHODS.map(p=>`<option value="${p}" ${p===t.payment_method?'selected':''}>${p}</option>`).join('')}${t.payment_method&&!PAY_METHODS.includes(t.payment_method)?`<option value="${t.payment_method}" selected>${t.payment_method}</option>`:''}</select></td>
+<td style="text-align:center"><input type="checkbox" data-id="${t.id}" data-f="internal" class="row-edit-chk" ${t.internal?'checked':''}></td>
+<td style="white-space:nowrap"><button class="btn-sm" onclick="openSplit('${t.id}')">÷</button> <button class="btn-sm" onclick="validateTx('${t.id}')" style="color:var(--green);border-color:var(--green)">✓ Validar</button> <button class="btn-sm" style="color:var(--red)" onclick="delTx('${t.id}')">✕</button></td>
+</tr>`;
+});
+return h+'</table>';
+}
+function renderValidation(){
+const rows=PENDING.slice().sort((a,b)=>(b.date||'').localeCompare(a.date||''));
+$('validation-table').innerHTML=rows.length?buildValidationTable(rows):'<div class="msg">Nenhuma transação pendente de validação. 🎉</div>';
+}
+window.validateTx=async(id)=>{
+await logAndUpdate(id,'validated',true);
+load();
+};
 async function logAndUpdate(id,field,newVal){
 const row=TX.find(t=>t.id===id);
 const oldVal=row?row[field]:null;
@@ -381,7 +422,7 @@ $('p-de').addEventListener('change',()=>{PERIOD.from=$('p-de').value;render();})
 $('p-ate').addEventListener('change',()=>{PERIOD.to=$('p-ate').value;render();});
 $('btn-ciclo').addEventListener('click',()=>{PERIOD=cicloAtual();render();});
 $('btn-export').addEventListener('click',()=>{
-const mtx=TX.filter(t=>!t.deleted&&(t.date||'')>=PERIOD.from&&(t.date||'')<=PERIOD.to).sort((a,b)=>(a.date||'').localeCompare(b.date||''));
+const mtx=TX.filter(t=>!t.deleted&&t.validated!==false&&(t.date||'')>=PERIOD.from&&(t.date||'')<=PERIOD.to).sort((a,b)=>(a.date||'').localeCompare(b.date||''));
 if(!mtx.length){alert('Não há transações no período selecionado.');return;}
 const rows=mtx.map(t=>{
 const sp=SPLITS[t.id]||[];
@@ -390,17 +431,19 @@ return{
 'Data':t.date,
 'Descrição':t.desc||'',
 'Valor':Number(t.value),
+'Saldo':saldoOf(t),
 'Sinal':t.type==='income'?t.value:-t.value,
 'Tipo':t.type==='income'?'Receita':'Despesa',
 'Natureza':t.nature==='fixa'?'Fixa':'Variável',
 'Categoria':t.category||'',
 'Forma de Pagamento':t.payment_method||'',
 'Investimento':t.is_investment?'Sim':'Não',
+'Interna':t.internal?'Sim':'Não',
 'Divisão':splitTxt,
 };
 });
 const ws=XLSX.utils.json_to_sheet(rows);
-ws['!cols']=[{wch:12},{wch:36},{wch:12},{wch:12},{wch:10},{wch:10},{wch:16},{wch:16},{wch:12},{wch:30}];
+ws['!cols']=[{wch:12},{wch:36},{wch:12},{wch:12},{wch:12},{wch:10},{wch:10},{wch:16},{wch:16},{wch:12},{wch:10},{wch:30}];
 const wb=XLSX.utils.book_new();
 XLSX.utils.book_append_sheet(wb,ws,'Transações');
 XLSX.writeFile(wb,`transacoes_${PERIOD.from}_a_${PERIOD.to}.xlsx`);
@@ -517,12 +560,11 @@ $('btn-cam').onclick=()=>$('file-cam').click();$('btn-gal').onclick=()=>$('file-
 $('file-cam').onchange=e=>scanFile(e.target.files[0]);$('file-gal').onchange=e=>scanFile(e.target.files[0]);
 async function scanFile(file){if(!file)return;$('scan-spin').classList.remove('hidden');$('scan-msg').textContent='';try{const b64=await new Promise((res,rej)=>{const r=new FileReader();r.onload=()=>res(r.result.split(',')[1]);r.onerror=rej;r.readAsDataURL(file);});const out=await callFn({mode:'receipt',image:b64,mime:file.type||'image/jpeg'});$('f-desc').value=out.estabelecimento||'';$('f-valor').value=out.valor!=null?String(out.valor):'';$('f-data').value=out.data||hoje();if(CATS.includes(out.categoria)){form.category=out.categoria;[...$('f-cat').children].forEach(c=>c.classList.toggle('on',c.dataset.v===out.categoria));}$('scan-msg').textContent='Dados lidos — confira e clique em Lançar.';}catch(err){$('scan-msg').textContent='Não consegui ler. Tente outra ou lance manualmente.';}$('scan-spin').classList.add('hidden');$('file-cam').value='';$('file-gal').value='';}
 $('btn-ask').onclick=ask;$('ask-input').onkeydown=e=>{if(e.key==='Enter')ask();};
-async function ask(){const q=$('ask-input').value.trim();if(!q)return;$('ask-input').value='';$('chat-empty').classList.add('hidden');$('chat').insertAdjacentHTML('beforeend','<div class="bubble b-user"></div>');$('chat').lastChild.textContent=q;$('ask-spin').classList.remove('hidden');try{const out=await callFn({mode:'ask',question:q,transactions:TX.filter(t=>!t.deleted).slice(0,1500).map(t=>`${t.date}|${t.desc}|${t.type==='income'?'+':'-'}${t.value}|${t.category}`).join('\n'),goals:GOALS});$('chat').insertAdjacentHTML('beforeend','<div class="bubble b-bot"></div>');$('chat').lastChild.textContent=out.text||'Sem resposta.';}catch(err){$('chat').insertAdjacentHTML('beforeend','<div class="bubble b-bot">Erro ao consultar.</div>');}$('ask-spin').classList.add('hidden');window.scrollTo(0,document.body.scrollHeight);}
+async function ask(){const q=$('ask-input').value.trim();if(!q)return;$('ask-input').value='';$('chat-empty').classList.add('hidden');$('chat').insertAdjacentHTML('beforeend','<div class="bubble b-user"></div>');$('chat').lastChild.textContent=q;$('ask-spin').classList.remove('hidden');try{const out=await callFn({mode:'ask',question:q,transactions:TX.filter(t=>!t.deleted&&t.validated!==false).slice(0,1500).map(t=>`${t.date}|${t.desc}|${t.type==='income'?'+':'-'}${t.value}|${t.category}`).join('\n'),goals:GOALS});$('chat').insertAdjacentHTML('beforeend','<div class="bubble b-bot"></div>');$('chat').lastChild.textContent=out.text||'Sem resposta.';}catch(err){$('chat').insertAdjacentHTML('beforeend','<div class="bubble b-bot">Erro ao consultar.</div>');}$('ask-spin').classList.add('hidden');window.scrollTo(0,document.body.scrollHeight);}
 async function callFn(body){const{data:{session}}=await sb.auth.getSession();const res=await fetch(FN_URL,{method:'POST',headers:{'Content-Type':'application/json','Authorization':'Bearer '+session.access_token},body:JSON.stringify(body)});if(!res.ok)throw new Error('fn '+res.status);return res.json();}
-document.querySelector('.tabbar').onclick=e=>{const tab=e.target.dataset.tab;if(!tab)return;['painel','lancar','previsoes','historico','perguntar'].forEach(t=>$('tab-'+t).classList.toggle('hidden',t!==tab));[...document.querySelectorAll('.tab')].forEach(b=>b.classList.toggle('on',b.dataset.tab===tab));};
+document.querySelector('.tabbar').onclick=e=>{const tab=e.target.closest('.tab')?.dataset.tab;if(!tab)return;['painel','lancar','previsoes','validacao','historico','perguntar'].forEach(t=>$('tab-'+t).classList.toggle('hidden',t!==tab));[...document.querySelectorAll('.tab')].forEach(b=>b.classList.toggle('on',b.dataset.tab===tab));};
 if('serviceWorker' in navigator)navigator.serviceWorker.register('sw.js').catch(()=>{});
 boot();
 </script>
 </body>
 </html>
- 
