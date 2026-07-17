@@ -111,6 +111,13 @@ table.tx-table .split-badge { display:inline-block; background:var(--line); colo
 </div>
 <div class="card">
 <div class="row"><div class="label">Transações do período</div><button class="btn-sm" id="btn-export">⬇ Excel</button></div>
+<div class="row" id="tx-filters" style="flex-wrap:wrap;gap:6px;margin-top:8px">
+<input id="filt-desc" placeholder="Buscar descrição..." style="margin-top:0;flex:2;min-width:140px">
+<select id="filt-type" style="margin-top:0;flex:1;min-width:90px"><option value="">Tipo</option><option value="expense">Despesa</option><option value="income">Receita</option></select>
+<select id="filt-nature" style="margin-top:0;flex:1;min-width:90px"><option value="">Natureza</option><option value="fixa">Fixa</option><option value="variavel">Variável</option></select>
+<select id="filt-cat" style="margin-top:0;flex:1;min-width:110px"><option value="">Categoria</option></select>
+<select id="filt-pay" style="margin-top:0;flex:1;min-width:110px"><option value="">Forma</option></select>
+</div>
 <div class="tx-scroll" id="tx-table"></div>
 </div>
 <div class="card">
@@ -226,16 +233,38 @@ const $=id=>document.getElementById(id);
 const fmt=n=>'R$ '+Number(n).toLocaleString('pt-BR',{minimumFractionDigits:2});
 const hoje=()=>new Date().toISOString().slice(0,10);
 let TX=[],GOALS={},FC=[],INC=[],PEOPLE=[],SPLITS={},AUDIT=[],PENDING=[],form={type:'expense',category:'Outros',nature:'variavel',invest:false};
+let FILTERS={desc:'',type:'',nature:'',category:'',payment_method:''};
+function applyFilters(rows){
+return rows.filter(t=>{
+if(FILTERS.desc&&!(t.desc||'').toLowerCase().includes(FILTERS.desc.toLowerCase()))return false;
+if(FILTERS.type&&t.type!==FILTERS.type)return false;
+if(FILTERS.nature&&(t.nature||'variavel')!==FILTERS.nature)return false;
+if(FILTERS.category&&t.category!==FILTERS.category)return false;
+if(FILTERS.payment_method&&(t.payment_method||'')!==FILTERS.payment_method)return false;
+return true;
+});
+}
+function populateFilterOptions(){
+const catSel=$('filt-cat');
+if(catSel.options.length<=1)catSel.innerHTML='<option value="">Categoria</option>'+CATS.map(c=>`<option value="${c}">${c}</option>`).join('');
+const paySel=$('filt-pay');
+if(paySel.options.length<=1)paySel.innerHTML='<option value="">Forma</option>'+PAY_METHODS.map(p=>`<option value="${p}">${p}</option>`).join('');
+}
+$('filt-desc').oninput=()=>{FILTERS.desc=$('filt-desc').value;render();};
+$('filt-type').onchange=()=>{FILTERS.type=$('filt-type').value;render();};
+$('filt-nature').onchange=()=>{FILTERS.nature=$('filt-nature').value;render();};
+$('filt-cat').onchange=()=>{FILTERS.category=$('filt-cat').value;render();};
+$('filt-pay').onchange=()=>{FILTERS.payment_method=$('filt-pay').value;render();};
 const CYCLE=11;
 function cicloAtual(){const n=new Date();let f,t;if(n.getDate()>=CYCLE){f=new Date(n.getFullYear(),n.getMonth(),CYCLE);t=new Date(n.getFullYear(),n.getMonth()+1,CYCLE-1);}else{f=new Date(n.getFullYear(),n.getMonth()-1,CYCLE);t=new Date(n.getFullYear(),n.getMonth(),CYCLE-1);}const iso=d=>new Date(d.getTime()-d.getTimezoneOffset()*60000).toISOString().slice(0,10);return{from:iso(f),to:iso(t)};}
 let PERIOD=cicloAtual();
 async function boot(){const{data:{session}}=await sb.auth.getSession();if(session)showApp();else showLogin();}
 function showLogin(){$('view-login').classList.remove('hidden');$('view-app').classList.add('hidden');}
-async function showApp(){$('view-login').classList.add('hidden');$('view-app').classList.remove('hidden');await load();}
+async function showApp(){$('view-login').classList.add('hidden');$('view-app').classList.remove('hidden');await load();doSync();}
 $('btn-login').onclick=async()=>{$('login-msg').textContent='Entrando…';const{error}=await sb.auth.signInWithPassword({email:$('login-email').value.trim(),password:$('login-pass').value});if(error){$('login-msg').textContent='E-mail ou senha incorretos.';return;}showApp();};
 $('btn-logout').onclick=async()=>{await sb.auth.signOut();location.reload();};
 $('btn-refresh').onclick=()=>{PERIOD=cicloAtual();render();};
-$('btn-sync').onclick=async()=>{
+async function doSync(){
 const ss=$('sync-status');ss.classList.remove('hidden');ss.textContent='Sincronizando com Open Finance...';
 $('btn-sync').disabled=true;
 try{
@@ -247,7 +276,8 @@ else{ss.innerHTML='<span class="red">Erro: '+(data.error||'desconhecido')+'</spa
 }catch(e){ss.innerHTML='<span class="red">Falha: '+e.message+'</span>';}
 $('btn-sync').disabled=false;
 setTimeout(()=>ss.classList.add('hidden'),15000);
-};
+}
+$('btn-sync').onclick=doSync;
 async function load(){
 const[t,g,f,ic,p,sp,c,au]=await Promise.all([
 sb.from('transactions').select('*').order('date',{ascending:false}).limit(3000),
@@ -268,11 +298,13 @@ const vc=$('val-count');if(PENDING.length){vc.textContent=PENDING.length;vc.clas
 SPLITS={};(sp.data||[]).forEach(s=>{if(!SPLITS[s.transaction_id])SPLITS[s.transaction_id]=[];SPLITS[s.transaction_id].push(s);});
 renderCatChips();
 render();
+loadChatHistory();
 }
 function renderCatChips(){
 $('f-cat').innerHTML=CATS.map(c=>`<button class="chip ${c===form.category?'on':''}" data-v="${c}">${c}</button>`).join('');
 }
 function render(){
+populateFilterOptions();
 $('p-de').value=PERIOD.from;$('p-ate').value=PERIOD.to;
 $('periodo').textContent='PERÍODO '+PERIOD.from.split('-').reverse().join('/')+' → '+PERIOD.to.split('-').reverse().join('/');
 const mtx=TX.filter(t=>!t.deleted&&t.validated!==false&&(t.date||'')>=PERIOD.from&&(t.date||'')<=PERIOD.to);
@@ -289,7 +321,7 @@ const invEntries=mtx.filter(t=>t.is_investment);
 const invTotal=invEntries.reduce((s,t)=>s+Number(t.value),0);
 $('inv-total').textContent=fmt(invTotal);
 $('inv-list').innerHTML=invEntries.length?invEntries.map(t=>`<div class="row" style="font-size:13px;margin-top:6px"><span>${t.desc||''}</span><span class="mono gold">${fmt(t.value)}</span></div>`).join(''):'<div class="msg">Nenhum aporte classificado como investimento no período.</div>';
-const allSorted=mtx.slice().sort((a,b)=>(b.date||'').localeCompare(a.date||''));
+const allSorted=applyFilters(mtx.slice().sort((a,b)=>(b.date||'').localeCompare(a.date||'')));
 $('tx-table').innerHTML=allSorted.length?buildTxTable(allSorted):'<div class="msg">Nenhuma transação no período.</div>';
 const gv=Object.entries(GOALS).filter(([,v])=>v>0);
 $('goals-view').innerHTML=gv.length?gv.map(([c,b])=>{const g=porCat[c]||0,p=Math.min(100,g/b*100),o=g>b;return`<div style="margin-top:10px"><div class="row" style="font-size:13px"><span>${c}</span><span class="mono ${o?'red':'dim'}">${fmt(g)} / ${fmt(b)}</span></div><div class="bar-track"><div class="bar-fill" style="width:${p.toFixed(1)}%;background:var(--${o?'red':'green'})"></div></div></div>`;}).join(''):'<div class="msg">Nenhuma meta definida.</div>';
@@ -566,7 +598,28 @@ $('btn-cam').onclick=()=>$('file-cam').click();$('btn-gal').onclick=()=>$('file-
 $('file-cam').onchange=e=>scanFile(e.target.files[0]);$('file-gal').onchange=e=>scanFile(e.target.files[0]);
 async function scanFile(file){if(!file)return;$('scan-spin').classList.remove('hidden');$('scan-msg').textContent='';try{const b64=await new Promise((res,rej)=>{const r=new FileReader();r.onload=()=>res(r.result.split(',')[1]);r.onerror=rej;r.readAsDataURL(file);});const out=await callFn({mode:'receipt',image:b64,mime:file.type||'image/jpeg'});$('f-desc').value=out.estabelecimento||'';$('f-valor').value=out.valor!=null?String(out.valor):'';$('f-data').value=out.data||hoje();if(CATS.includes(out.categoria)){form.category=out.categoria;[...$('f-cat').children].forEach(c=>c.classList.toggle('on',c.dataset.v===out.categoria));}$('scan-msg').textContent='Dados lidos — confira e clique em Lançar.';}catch(err){$('scan-msg').textContent='Não consegui ler. Tente outra ou lance manualmente.';}$('scan-spin').classList.add('hidden');$('file-cam').value='';$('file-gal').value='';}
 $('btn-ask').onclick=ask;$('ask-input').onkeydown=e=>{if(e.key==='Enter')ask();};
-async function ask(){const q=$('ask-input').value.trim();if(!q)return;$('ask-input').value='';$('chat-empty').classList.add('hidden');$('chat').insertAdjacentHTML('beforeend','<div class="bubble b-user"></div>');$('chat').lastChild.textContent=q;$('ask-spin').classList.remove('hidden');try{const out=await callFn({mode:'ask',question:q,transactions:TX.filter(t=>!t.deleted&&t.validated!==false).slice(0,1500).map(t=>`${t.date}|${t.desc}|${t.type==='income'?'+':'-'}${t.value}|${t.category}`).join('\n'),goals:GOALS});$('chat').insertAdjacentHTML('beforeend','<div class="bubble b-bot"></div>');$('chat').lastChild.textContent=out.text||'Sem resposta.';}catch(err){$('chat').insertAdjacentHTML('beforeend','<div class="bubble b-bot">Erro ao consultar.</div>');}$('ask-spin').classList.add('hidden');window.scrollTo(0,document.body.scrollHeight);}
+let CHAT_HISTORY=[];
+function escapeHtml(s){return (s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');}
+function mdToHtml(s){
+let h=escapeHtml(s||'');
+h=h.replace(/\*\*(.+?)\*\*/g,'<b>$1</b>');
+h=h.replace(/(^|\s)\*(\S(?:.*?\S)?)\*(?=\s|$)/g,'$1<i>$2</i>');
+h=h.replace(/^#{1,4}\s*(.+)$/gm,'<b>$1</b>');
+h=h.replace(/^[-*]\s+(.+)$/gm,'• $1');
+h=h.replace(/\n/g,'<br>');
+return h;
+}
+async function loadChatHistory(){
+try{
+const{data}=await sb.from('chat_messages').select('*').order('created_at',{ascending:true}).limit(60);
+CHAT_HISTORY=data||[];
+if(CHAT_HISTORY.length){
+$('chat-empty').classList.add('hidden');
+$('chat').innerHTML=CHAT_HISTORY.map(m=>`<div class="bubble ${m.role==='user'?'b-user':'b-bot'}">${m.role==='user'?escapeHtml(m.content):mdToHtml(m.content)}</div>`).join('');
+}
+}catch(e){}
+}
+async function ask(){const q=$('ask-input').value.trim();if(!q)return;$('ask-input').value='';$('chat-empty').classList.add('hidden');$('chat').insertAdjacentHTML('beforeend','<div class="bubble b-user"></div>');$('chat').lastChild.textContent=q;$('ask-spin').classList.remove('hidden');try{const historyText=CHAT_HISTORY.slice(-10).map(m=>`${m.role==='user'?'Usuário':'Assistente'}: ${m.content}`).join('\n');const out=await callFn({mode:'ask',question:q,history:historyText,transactions:TX.filter(t=>!t.deleted&&t.validated!==false).slice(0,1500).map(t=>`${t.date}|${t.desc}|${t.type==='income'?'+':'-'}${t.value}|${t.category}`).join('\n'),goals:GOALS});const answer=out.text||'Sem resposta.';$('chat').insertAdjacentHTML('beforeend','<div class="bubble b-bot"></div>');$('chat').lastChild.innerHTML=mdToHtml(answer);sb.from('chat_messages').insert([{role:'user',content:q},{role:'assistant',content:answer}]).then(()=>{});CHAT_HISTORY.push({role:'user',content:q},{role:'assistant',content:answer});}catch(err){$('chat').insertAdjacentHTML('beforeend','<div class="bubble b-bot">Erro ao consultar.</div>');}$('ask-spin').classList.add('hidden');window.scrollTo(0,document.body.scrollHeight);}
 async function callFn(body){const{data:{session}}=await sb.auth.getSession();const res=await fetch(FN_URL,{method:'POST',headers:{'Content-Type':'application/json','Authorization':'Bearer '+session.access_token},body:JSON.stringify(body)});if(!res.ok)throw new Error('fn '+res.status);return res.json();}
 document.querySelector('.tabbar').onclick=e=>{const tab=e.target.closest('.tab')?.dataset.tab;if(!tab)return;['painel','lancar','previsoes','validacao','historico','perguntar'].forEach(t=>$('tab-'+t).classList.toggle('hidden',t!==tab));[...document.querySelectorAll('.tab')].forEach(b=>b.classList.toggle('on',b.dataset.tab===tab));};
 if('serviceWorker' in navigator)navigator.serviceWorker.register('sw.js').catch(()=>{});
