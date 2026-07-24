@@ -109,10 +109,6 @@ table.tx-table .split-badge { display:inline-block; background:var(--line); colo
 <div class="msg">Toque no nome de uma coluna pra filtrar ou ordenar.</div>
 <div class="tx-scroll" id="tx-table"></div>
 </div>
-<div class="card">
-<div class="row"><div class="label">Metas do mês</div><button class="logout" id="btn-goals-edit">editar</button></div>
-<div id="goals-view"></div><div id="goals-edit" class="hidden"></div>
-</div>
 </div>
 <div id="tab-previsoes" class="hidden">
 <div class="card">
@@ -222,13 +218,24 @@ const $=id=>document.getElementById(id);
 const fmt=n=>'R$ '+Number(n).toLocaleString('pt-BR',{minimumFractionDigits:2});
 const hoje=()=>new Date().toISOString().slice(0,10);
 let TX=[],GOALS={},FC=[],INC=[],PEOPLE=[],SPLITS={},AUDIT=[],PENDING=[],form={type:'expense',category:'Outros',nature:'variavel'};
-let FILTERS={desc:'',type:new Set(),nature:new Set(),category:new Set(),payment_method:new Set()};
+function freshFilters(){return{desc:'',date:{from:'',to:''},value:{min:'',max:''},saldo:{min:'',max:''},type:new Set(),nature:new Set(),category:new Set(),payment_method:new Set()};}
+let FILTERS=freshFilters();
 let SORT={key:'date',dir:'desc'};
 let CURRENT_MTX=[];
-function hasActiveFilters(){return !!(FILTERS.desc||FILTERS.type.size||FILTERS.nature.size||FILTERS.category.size||FILTERS.payment_method.size);}
+function hasActiveFilters(){
+return !!(FILTERS.desc||FILTERS.date.from||FILTERS.date.to||FILTERS.value.min!==''||FILTERS.value.max!==''||FILTERS.saldo.min!==''||FILTERS.saldo.max!==''||FILTERS.type.size||FILTERS.nature.size||FILTERS.category.size||FILTERS.payment_method.size);
+}
 function applyFilters(rows){
 return rows.filter(t=>{
 if(FILTERS.desc&&!(t.desc||'').toLowerCase().includes(FILTERS.desc.toLowerCase()))return false;
+if(FILTERS.date.from&&(t.date||'')<FILTERS.date.from)return false;
+if(FILTERS.date.to&&(t.date||'')>FILTERS.date.to)return false;
+const val=Number(t.value)||0;
+if(FILTERS.value.min!==''&&val<Number(FILTERS.value.min))return false;
+if(FILTERS.value.max!==''&&val>Number(FILTERS.value.max))return false;
+const sal=saldoOf(t);
+if(FILTERS.saldo.min!==''&&sal<Number(FILTERS.saldo.min))return false;
+if(FILTERS.saldo.max!==''&&sal>Number(FILTERS.saldo.max))return false;
 if(FILTERS.type.size&&!FILTERS.type.has(t.type))return false;
 if(FILTERS.nature.size&&!FILTERS.nature.has(t.nature||'variavel'))return false;
 if(FILTERS.category.size&&!FILTERS.category.has(t.category))return false;
@@ -236,39 +243,51 @@ if(FILTERS.payment_method.size&&!FILTERS.payment_method.has(t.payment_method||''
 return true;
 });
 }
+function sortVal(t,key){
+if(key==='saldo')return saldoOf(t);
+if(key==='value')return Number(t.value)||0;
+if(key==='type')return t.type==='income'?'Receita':'Despesa';
+if(key==='nature')return t.nature==='fixa'?'Fixa':'Variável';
+return t[key]||'';
+}
 function applySort(rows){
 const{key,dir}=SORT,mul=dir==='asc'?1:-1;
 return rows.slice().sort((a,b)=>{
-let av,bv;
-if(key==='value'){av=Number(a.value)||0;bv=Number(b.value)||0;}
-else{av=a[key]||'';bv=b[key]||'';}
+const av=sortVal(a,key),bv=sortVal(b,key);
 if(av<bv)return -1*mul;if(av>bv)return 1*mul;return 0;
 });
 }
-const COL_DEFS={
-type:{opts:()=>[['expense','Despesa'],['income','Receita']]},
-nature:{opts:()=>[['fixa','Fixa'],['variavel','Variável']]},
-category:{opts:()=>CATS.map(c=>[c,c])},
-payment_method:{opts:()=>{const vals=[...new Set(CURRENT_MTX.map(t=>t.payment_method||'').filter(v=>v!==''))].sort((a,b)=>a.localeCompare(b,'pt-BR'));return vals.map(v=>[v,v]);}},
+const COL_TYPE={date:'date',desc:'text',value:'number',saldo:'number',type:'enum',nature:'enum',category:'enum',payment_method:'enum'};
+const ENUM_OPTS={
+type:()=>[['expense','Despesa'],['income','Receita']],
+nature:()=>[['fixa','Fixa'],['variavel','Variável']],
+category:()=>CATS.map(c=>[c,c]),
+payment_method:()=>{const vals=[...new Set(CURRENT_MTX.map(t=>t.payment_method||'').filter(v=>v!==''))].sort((a,b)=>a.localeCompare(b,'pt-BR'));return vals.map(v=>[v,v]);},
 };
-const SORTABLE_COLS=new Set(['date','value']);
 function closeColPopup(){$('col-filter-popup').classList.add('hidden');}
 function openColPopup(colKey,anchor){
 const pop=$('col-filter-popup');
-let html='';
-if(SORTABLE_COLS.has(colKey))html+=`<div style="display:flex;gap:6px;margin-bottom:8px">
-<button class="btn-sm" data-sort="${colKey}" data-dir="asc" style="flex:1">▲</button>
-<button class="btn-sm" data-sort="${colKey}" data-dir="desc" style="flex:1">▼</button>
+const type=COL_TYPE[colKey];
+let html=`<div style="display:flex;gap:6px;margin-bottom:8px">
+<button class="btn-sm" data-sort="${colKey}" data-dir="asc" style="flex:1">▲ Menor/A-Z</button>
+<button class="btn-sm" data-sort="${colKey}" data-dir="desc" style="flex:1">▼ Maior/Z-A</button>
 </div>`;
-if(colKey==='desc')html+=`<input id="popup-desc-input" placeholder="Buscar descrição..." value="${(FILTERS.desc||'').replace(/"/g,'&quot;')}" style="margin-top:0">`;
-if(COL_DEFS[colKey]){
-const opts=COL_DEFS[colKey].opts();
+if(type==='text'){
+html+=`<div class="label" style="margin-top:0">Contém</div><input id="popup-desc-input" placeholder="Texto..." value="${(FILTERS.desc||'').replace(/"/g,'&quot;')}" style="margin-top:2px">`;
+}else if(type==='date'){
+html+=`<div class="label" style="margin-top:0">De</div><input id="popup-date-from" type="date" value="${FILTERS.date.from}" style="margin-top:2px">
+<div class="label" style="margin-top:8px">Até</div><input id="popup-date-to" type="date" value="${FILTERS.date.to}" style="margin-top:2px">`;
+}else if(type==='number'){
+html+=`<div class="label" style="margin-top:0">Mínimo</div><input id="popup-num-min" inputmode="decimal" value="${FILTERS[colKey].min}" style="margin-top:2px">
+<div class="label" style="margin-top:8px">Máximo</div><input id="popup-num-max" inputmode="decimal" value="${FILTERS[colKey].max}" style="margin-top:2px">`;
+}else if(type==='enum'){
+const opts=ENUM_OPTS[colKey]();
 const set=FILTERS[colKey];
 html+=`<div style="max-height:220px;overflow-y:auto;margin-top:4px">`+
 (opts.length?opts.map(([v,l])=>`<label style="display:flex;align-items:center;gap:6px;padding:4px 0;font-size:12px"><input type="checkbox" class="popup-chk" data-col="${colKey}" data-val="${v.replace(/"/g,'&quot;')}" ${set.has(v)?'checked':''} style="width:auto;margin-top:0">${l}</label>`).join(''):'<div class="msg">Sem valores neste período.</div>')
 +`</div>`;
 }
-if(colKey==='desc'||COL_DEFS[colKey])html+=`<div class="row" style="margin-top:8px;gap:6px">
+html+=`<div class="row" style="margin-top:8px;gap:6px">
 <button class="btn-sm" id="popup-clear">Limpar</button>
 <button class="btn-sm" id="popup-close" style="border-color:var(--gold);color:var(--gold)">Fechar</button>
 </div>`;
@@ -278,22 +297,38 @@ pop.style.left=Math.max(6,Math.min(r.left,window.innerWidth-236))+'px';
 pop.style.top=(r.bottom+4)+'px';
 pop.classList.remove('hidden');
 pop.querySelectorAll('[data-sort]').forEach(b=>b.onclick=()=>{SORT={key:b.dataset.sort,dir:b.dataset.dir};closeColPopup();render();});
+if(type==='text'){const inp=pop.querySelector('#popup-desc-input');inp.oninput=()=>{FILTERS.desc=inp.value;render();};}
+if(type==='date'){
+const f=pop.querySelector('#popup-date-from'),t2=pop.querySelector('#popup-date-to');
+f.onchange=()=>{FILTERS.date.from=f.value;render();};
+t2.onchange=()=>{FILTERS.date.to=t2.value;render();};
+}
+if(type==='number'){
+const mn=pop.querySelector('#popup-num-min'),mx=pop.querySelector('#popup-num-max');
+mn.oninput=()=>{FILTERS[colKey].min=mn.value;render();};
+mx.oninput=()=>{FILTERS[colKey].max=mx.value;render();};
+}
+if(type==='enum'){
 pop.querySelectorAll('.popup-chk').forEach(c=>c.onchange=()=>{
 if(c.checked)FILTERS[c.dataset.col].add(c.dataset.val);else FILTERS[c.dataset.col].delete(c.dataset.val);
 render();
 });
-const clearBtn=pop.querySelector('#popup-clear');
-if(clearBtn)clearBtn.onclick=()=>{if(colKey==='desc')FILTERS.desc='';else if(FILTERS[colKey])FILTERS[colKey].clear();closeColPopup();render();};
-const closeBtn=pop.querySelector('#popup-close');
-if(closeBtn)closeBtn.onclick=closeColPopup;
-if(colKey==='desc'){const inp=pop.querySelector('#popup-desc-input');inp.oninput=()=>{FILTERS.desc=inp.value;render();};}
+}
+pop.querySelector('#popup-clear').onclick=()=>{
+if(type==='text')FILTERS.desc='';
+else if(type==='date')FILTERS.date={from:'',to:''};
+else if(type==='number')FILTERS[colKey]={min:'',max:''};
+else if(type==='enum')FILTERS[colKey].clear();
+closeColPopup();render();
+};
+pop.querySelector('#popup-close').onclick=closeColPopup;
 }
 document.addEventListener('click',e=>{
 const th=e.target.closest('.th-filter-cell');
 if(th){e.stopPropagation();openColPopup(th.dataset.col,th);return;}
 if(!e.target.closest('#col-filter-popup'))closeColPopup();
 });
-$('btn-clear-filters').onclick=()=>{FILTERS={desc:'',type:new Set(),nature:new Set(),category:new Set(),payment_method:new Set()};closeColPopup();render();};
+$('btn-clear-filters').onclick=()=>{FILTERS=freshFilters();closeColPopup();render();};
 $('btn-open-lancar').onclick=()=>$('modal-lancar').classList.remove('hidden');
 $('btn-close-lancar').onclick=()=>$('modal-lancar').classList.add('hidden');
 const CYCLE=11;
@@ -350,19 +385,17 @@ $('periodo').textContent='PERÍODO '+PERIOD.from.split('-').reverse().join('/')+
 const mtx=TX.filter(t=>!t.deleted&&t.validated!==false&&(t.date||'')>=PERIOD.from&&(t.date||'')<=PERIOD.to);
 CURRENT_MTX=mtx;
 const realTx=mtx.filter(t=>t.category!=='Investimento'&&!t.internal);
-const rec=realTx.filter(t=>t.type==='income').reduce((s,t)=>s+Number(t.value),0);
-const desp=realTx.filter(t=>t.type==='expense').reduce((s,t)=>s+Number(t.value),0);
+const rec=realTx.filter(t=>t.type==='income').reduce((s,t)=>s+saldoOf(t),0);
+const desp=realTx.filter(t=>t.type==='expense').reduce((s,t)=>s+saldoOf(t),0);
 const saldo=rec-desp;
 $('saldo').textContent=fmt(saldo);$('saldo').className='big mono '+(saldo>=0?'green':'red');
 $('receitas').textContent=fmt(rec);$('despesas').textContent=fmt(desp);
-const porCat={};realTx.filter(t=>t.type==='expense').forEach(t=>porCat[t.category]=(porCat[t.category]||0)+Number(t.value));
+const porCat={};realTx.filter(t=>t.type==='expense').forEach(t=>porCat[t.category]=(porCat[t.category]||0)+saldoOf(t));
 const entries=Object.entries(porCat).sort((a,b)=>b[1]-a[1]);const max=entries.length?entries[0][1]:1;
 $('cats').innerHTML=entries.length?entries.map(([c,v])=>`<div style="margin-top:10px"><div class="row" style="font-size:13px"><span>${c}</span><span class="mono dim">${fmt(v)}</span></div><div class="bar-track"><div class="bar-fill" style="width:${(v/max*100).toFixed(1)}%"></div></div></div>`).join(''):'<div class="msg">Sem despesas no período.</div>';
 $('btn-clear-filters').classList.toggle('hidden',!hasActiveFilters());
 const allSorted=applySort(applyFilters(mtx));
 $('tx-table').innerHTML=allSorted.length?buildTxTable(allSorted):'<div class="msg">Nenhuma transação no período.</div>';
-const gv=Object.entries(GOALS).filter(([,v])=>v>0);
-$('goals-view').innerHTML=gv.length?gv.map(([c,b])=>{const g=porCat[c]||0,p=Math.min(100,g/b*100),o=g>b;return`<div style="margin-top:10px"><div class="row" style="font-size:13px"><span>${c}</span><span class="mono ${o?'red':'dim'}">${fmt(g)} / ${fmt(b)}</span></div><div class="bar-track"><div class="bar-fill" style="width:${p.toFixed(1)}%;background:var(--${o?'red':'green'})"></div></div></div>`;}).join(''):'<div class="msg">Nenhuma meta definida.</div>';
 renderForecasts();
 renderHistorico();
 renderValidation();
@@ -403,22 +436,32 @@ load();
 };
 function saldoOf(t){const sp=SPLITS[t.id]||[];const splitTotal=sp.reduce((s,x)=>s+Number(x.amount),0);return Number(t.value)-splitTotal;}
 function thCell(key,label){
-const fset=FILTERS[key];
-const active=key==='desc'?!!FILTERS.desc:(fset&&fset.size>0);
+const type=COL_TYPE[key];
+let active=false;
+if(type==='text')active=!!FILTERS.desc;
+else if(type==='date')active=!!(FILTERS.date.from||FILTERS.date.to);
+else if(type==='number')active=!!(FILTERS[key].min!==''||FILTERS[key].max!=='');
+else if(type==='enum')active=FILTERS[key].size>0;
 const arrow=SORT.key===key?(SORT.dir==='asc'?' ▲':' ▼'):'';
 return `<th class="th-filter-cell" data-col="${key}"${active?' style="color:var(--gold)"':''}>${label}${arrow} ⌄</th>`;
 }
 function buildTxTable(rows){
-let h='<table class="tx-table"><tr>'+thCell('date','Data')+thCell('desc','Descrição')+thCell('value','Valor')+'<th>Saldo</th>'+thCell('type','Tipo')+thCell('nature','Nat.')+thCell('category','Categoria')+thCell('payment_method','Forma')+'<th></th></tr>';
+let h='<table class="tx-table"><tr>'+thCell('date','Data')+thCell('desc','Descrição')+thCell('value','Valor')+thCell('saldo','Saldo')+thCell('type','Tipo')+thCell('nature','Nat.')+thCell('category','Categoria')+thCell('payment_method','Forma')+'<th></th></tr>';
+let sumValor=0,sumSaldo=0,sumSplitDiscount=0;
 rows.forEach(t=>{
 const sp=SPLITS[t.id]||[];
 const splitBadges=sp.map(s=>`<span class="split-badge">${s.people?.name||'?'}: ${fmt(s.amount)}</span>`).join(' ');
 const descVal=(t.desc||'').replace(/"/g,'&quot;');
+const sign=t.type==='income'?1:-1;
+const sal=saldoOf(t);
+sumValor+=sign*Number(t.value);
+sumSaldo+=sign*sal;
+sumSplitDiscount+=(Number(t.value)-sal);
 h+=`<tr>
 <td class="mono dim">${(t.date||'').split('-').reverse().join('/')}</td>
 <td><input class="row-edit-text desc-input" data-id="${t.id}" data-f="desc" value="${descVal}">${splitBadges?'<br>'+splitBadges:''}</td>
 <td class="mono ${t.type==='income'?'green':'red'}">${fmt(t.value)}</td>
-<td class="mono dim">${fmt(saldoOf(t))}</td>
+<td class="mono dim">${fmt(sal)}</td>
 <td><select data-id="${t.id}" data-f="type" class="row-edit"><option value="expense" ${t.type==='expense'?'selected':''}>Desp.</option><option value="income" ${t.type==='income'?'selected':''}>Rec.</option></select></td>
 <td><select data-id="${t.id}" data-f="nature" class="row-edit"><option value="fixa" ${t.nature==='fixa'?'selected':''}>Fixa</option><option value="variavel" ${t.nature!=='fixa'?'selected':''}>Var.</option></select></td>
 <td><select data-id="${t.id}" data-f="category" class="row-edit">${CATS.map(c=>`<option value="${c}" ${c===t.category?'selected':''}>${c}</option>`).join('')}<option value="__new__">+ Nova...</option></select></td>
@@ -426,6 +469,13 @@ h+=`<tr>
 <td><button class="btn-sm" onclick="openSplit('${t.id}')">÷</button> <button class="btn-sm" style="color:var(--red)" onclick="delTx('${t.id}')">✕</button></td>
 </tr>`;
 });
+h+=`<tr style="border-top:2px solid var(--gold)">
+<td></td>
+<td><b style="font-size:11px">Subtotal (${rows.length})</b><br><span class="dim" style="font-size:10px">Descontado em divisões: ${fmt(sumSplitDiscount)}</span></td>
+<td class="mono ${sumValor>=0?'green':'red'}"><b>${fmt(sumValor)}</b></td>
+<td class="mono ${sumSaldo>=0?'green':'red'}"><b>${fmt(sumSaldo)}</b></td>
+<td></td><td></td><td></td><td></td><td></td>
+</tr>`;
 return h+'</table>';
 }
 function buildValidationTable(rows){
@@ -617,12 +667,6 @@ ed.classList.add('hidden');load();
 }
 setupEditableTable('fc-view','fc-edit','btn-fc-edit','forecasts');
 setupEditableTable('inc-view','inc-edit','btn-inc-edit','income_forecasts');
-$('btn-goals-edit').onclick=()=>{
-const ed=$('goals-edit');if(!ed.classList.contains('hidden')){ed.classList.add('hidden');return;}
-ed.innerHTML=CATS.map(c=>`<div class="row" style="margin-top:8px"><span style="font-size:13px;width:110px">${c}</span><input inputmode="decimal" data-cat="${c}" value="${GOALS[c]||''}" placeholder="0" style="margin-top:0"></div>`).join('')+`<button class="btn" id="btn-goals-save">Salvar metas</button>`;
-ed.classList.remove('hidden');
-$('btn-goals-save').onclick=async()=>{const rows=[...ed.querySelectorAll('input')].map(i=>({category:i.dataset.cat,amount:parseFloat((i.value||'0').replace(',','.'))||0}));await sb.from('goals').upsert(rows,{onConflict:'category'});ed.classList.add('hidden');load();};
-};
 $('f-data').value=hoje();
 $('f-pay').innerHTML=PAY_METHODS.map(p=>`<option value="${p}" ${p==='PIX'?'selected':''}>${p}</option>`).join('');
 form.paymentMethod='PIX';
