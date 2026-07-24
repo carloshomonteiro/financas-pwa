@@ -105,19 +105,8 @@ table.tx-table .split-badge { display:inline-block; background:var(--line); colo
 </div>
 <div class="card"><div class="label">Gastos por categoria</div><div id="cats"></div></div>
 <div class="card">
-<div class="label">Investimentos do período</div>
-<div class="big mono gold" id="inv-total">—</div>
-<div id="inv-list"></div>
-</div>
-<div class="card">
-<div class="row"><div class="label">Transações do período</div><button class="btn-sm" id="btn-export">⬇ Excel</button></div>
-<div class="row" id="tx-filters" style="flex-wrap:wrap;gap:6px;margin-top:8px">
-<input id="filt-desc" placeholder="Buscar descrição..." style="margin-top:0;flex:2;min-width:140px">
-<select id="filt-type" style="margin-top:0;flex:1;min-width:90px"><option value="">Tipo</option><option value="expense">Despesa</option><option value="income">Receita</option></select>
-<select id="filt-nature" style="margin-top:0;flex:1;min-width:90px"><option value="">Natureza</option><option value="fixa">Fixa</option><option value="variavel">Variável</option></select>
-<select id="filt-cat" style="margin-top:0;flex:1;min-width:110px"><option value="">Categoria</option></select>
-<select id="filt-pay" style="margin-top:0;flex:1;min-width:110px"><option value="">Forma</option></select>
-</div>
+<div class="row" style="flex-wrap:wrap;gap:6px"><div class="label">Transações do período</div><div style="display:flex;gap:6px;flex-wrap:wrap"><button class="btn-sm" id="btn-open-lancar">+ Manual</button><button class="btn-sm hidden" id="btn-clear-filters" style="color:var(--red);border-color:var(--red)">✕ Filtros</button><button class="btn-sm" id="btn-export">⬇ Excel</button></div></div>
+<div class="msg">Toque no nome de uma coluna pra filtrar ou ordenar.</div>
 <div class="tx-scroll" id="tx-table"></div>
 </div>
 <div class="card">
@@ -149,9 +138,9 @@ table.tx-table .split-badge { display:inline-block; background:var(--line); colo
 <div id="historico-view"></div>
 </div>
 </div>
-<div id="tab-lancar" class="hidden">
-<div class="card">
-<div class="label">Lançar transação</div>
+<div id="modal-lancar" class="hidden" style="position:fixed;inset:0;background:rgba(0,0,0,.7);z-index:20;display:flex;align-items:center;justify-content:center;padding:14px">
+<div class="card" style="width:100%;max-width:460px;max-height:88vh;overflow-y:auto">
+<div class="row"><div class="label">Lançar transação manual</div><button class="btn-sm" id="btn-close-lancar">✕ Fechar</button></div>
 <input type="file" accept="image/*" capture="environment" id="file-cam" class="hidden">
 <input type="file" accept="image/*" id="file-gal" class="hidden">
 <div class="grid2" style="margin-top:10px">
@@ -165,10 +154,6 @@ table.tx-table .split-badge { display:inline-block; background:var(--line); colo
 <div class="chips" id="f-tipo"><button class="chip on" data-v="expense">Despesa</button><button class="chip" data-v="income">Receita</button></div>
 <select id="f-nature"><option value="variavel">Variável</option><option value="fixa">Fixa</option></select>
 <select id="f-pay"></select>
-<div class="row" style="margin-top:10px;gap:6px;align-items:center;justify-content:flex-start">
-<input type="checkbox" id="f-invest" style="width:auto;margin-top:0">
-<span style="font-size:12px">É investimento (não conta como despesa)</span>
-</div>
 <div class="label" style="margin-top:12px">Categoria</div>
 <div class="chips" id="f-cat"></div>
 <div class="row" style="margin-top:8px;gap:6px">
@@ -196,7 +181,6 @@ table.tx-table .split-badge { display:inline-block; background:var(--line); colo
 <div class="tabbar">
 <div class="tabbar-inner">
 <button class="tab on" data-tab="painel">Painel</button>
-<button class="tab" data-tab="lancar">Lançar</button>
 <button class="tab" data-tab="previsoes">Previsões</button>
 <button class="tab" data-tab="validacao">Validação<span id="val-count" class="hidden" style="background:var(--gold);color:var(--bg);border-radius:8px;padding:1px 5px;font-size:9px;margin-left:3px;font-weight:700"></span></button>
 <button class="tab" data-tab="historico">Histórico</button>
@@ -224,6 +208,7 @@ table.tx-table .split-badge { display:inline-block; background:var(--line); colo
 </div>
 </div>
 </div>
+<div id="col-filter-popup" class="hidden" style="position:fixed;z-index:30;background:var(--sheet);border:1px solid var(--gold);padding:10px;min-width:170px;max-width:230px;box-shadow:0 4px 14px rgba(0,0,0,.5)"></div>
 <script type="module">
 import { createClient } from 'https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/+esm';
 import * as XLSX from 'https://esm.sh/xlsx@0.18.5';
@@ -236,33 +221,81 @@ const sb=createClient(SB_URL,SB_KEY);
 const $=id=>document.getElementById(id);
 const fmt=n=>'R$ '+Number(n).toLocaleString('pt-BR',{minimumFractionDigits:2});
 const hoje=()=>new Date().toISOString().slice(0,10);
-let TX=[],GOALS={},FC=[],INC=[],PEOPLE=[],SPLITS={},AUDIT=[],PENDING=[],form={type:'expense',category:'Outros',nature:'variavel',invest:false};
-let FILTERS={desc:'',type:'',nature:'',category:'',payment_method:''};
+let TX=[],GOALS={},FC=[],INC=[],PEOPLE=[],SPLITS={},AUDIT=[],PENDING=[],form={type:'expense',category:'Outros',nature:'variavel'};
+let FILTERS={desc:'',type:new Set(),nature:new Set(),category:new Set(),payment_method:new Set()};
+let SORT={key:'date',dir:'desc'};
+let CURRENT_MTX=[];
+function hasActiveFilters(){return !!(FILTERS.desc||FILTERS.type.size||FILTERS.nature.size||FILTERS.category.size||FILTERS.payment_method.size);}
 function applyFilters(rows){
 return rows.filter(t=>{
 if(FILTERS.desc&&!(t.desc||'').toLowerCase().includes(FILTERS.desc.toLowerCase()))return false;
-if(FILTERS.type&&t.type!==FILTERS.type)return false;
-if(FILTERS.nature&&(t.nature||'variavel')!==FILTERS.nature)return false;
-if(FILTERS.category&&t.category!==FILTERS.category)return false;
-if(FILTERS.payment_method&&(t.payment_method||'')!==FILTERS.payment_method)return false;
+if(FILTERS.type.size&&!FILTERS.type.has(t.type))return false;
+if(FILTERS.nature.size&&!FILTERS.nature.has(t.nature||'variavel'))return false;
+if(FILTERS.category.size&&!FILTERS.category.has(t.category))return false;
+if(FILTERS.payment_method.size&&!FILTERS.payment_method.has(t.payment_method||''))return false;
 return true;
 });
 }
-function populateFilterOptions(){
-const catSel=$('filt-cat');
-if(catSel.options.length<=1)catSel.innerHTML='<option value="">Categoria</option>'+CATS.map(c=>`<option value="${c}">${c}</option>`).join('');
-const paySel=$('filt-pay');
-if(paySel.options.length<=1){
-const dynamic=[...new Set(TX.map(t=>t.payment_method).filter(Boolean))];
-const allPay=[...new Set([...PAY_METHODS,...dynamic])].sort((a,b)=>a.localeCompare(b,'pt-BR'));
-paySel.innerHTML='<option value="">Forma</option>'+allPay.map(p=>`<option value="${p}">${p}</option>`).join('');
+function applySort(rows){
+const{key,dir}=SORT,mul=dir==='asc'?1:-1;
+return rows.slice().sort((a,b)=>{
+let av,bv;
+if(key==='value'){av=Number(a.value)||0;bv=Number(b.value)||0;}
+else{av=a[key]||'';bv=b[key]||'';}
+if(av<bv)return -1*mul;if(av>bv)return 1*mul;return 0;
+});
 }
+const COL_DEFS={
+type:{opts:()=>[['expense','Despesa'],['income','Receita']]},
+nature:{opts:()=>[['fixa','Fixa'],['variavel','Variável']]},
+category:{opts:()=>CATS.map(c=>[c,c])},
+payment_method:{opts:()=>{const vals=[...new Set(CURRENT_MTX.map(t=>t.payment_method||'').filter(v=>v!==''))].sort((a,b)=>a.localeCompare(b,'pt-BR'));return vals.map(v=>[v,v]);}},
+};
+const SORTABLE_COLS=new Set(['date','value']);
+function closeColPopup(){$('col-filter-popup').classList.add('hidden');}
+function openColPopup(colKey,anchor){
+const pop=$('col-filter-popup');
+let html='';
+if(SORTABLE_COLS.has(colKey))html+=`<div style="display:flex;gap:6px;margin-bottom:8px">
+<button class="btn-sm" data-sort="${colKey}" data-dir="asc" style="flex:1">▲</button>
+<button class="btn-sm" data-sort="${colKey}" data-dir="desc" style="flex:1">▼</button>
+</div>`;
+if(colKey==='desc')html+=`<input id="popup-desc-input" placeholder="Buscar descrição..." value="${(FILTERS.desc||'').replace(/"/g,'&quot;')}" style="margin-top:0">`;
+if(COL_DEFS[colKey]){
+const opts=COL_DEFS[colKey].opts();
+const set=FILTERS[colKey];
+html+=`<div style="max-height:220px;overflow-y:auto;margin-top:4px">`+
+(opts.length?opts.map(([v,l])=>`<label style="display:flex;align-items:center;gap:6px;padding:4px 0;font-size:12px"><input type="checkbox" class="popup-chk" data-col="${colKey}" data-val="${v.replace(/"/g,'&quot;')}" ${set.has(v)?'checked':''} style="width:auto;margin-top:0">${l}</label>`).join(''):'<div class="msg">Sem valores neste período.</div>')
++`</div>`;
 }
-$('filt-desc').oninput=()=>{FILTERS.desc=$('filt-desc').value;render();};
-$('filt-type').onchange=()=>{FILTERS.type=$('filt-type').value;render();};
-$('filt-nature').onchange=()=>{FILTERS.nature=$('filt-nature').value;render();};
-$('filt-cat').onchange=()=>{FILTERS.category=$('filt-cat').value;render();};
-$('filt-pay').onchange=()=>{FILTERS.payment_method=$('filt-pay').value;render();};
+if(colKey==='desc'||COL_DEFS[colKey])html+=`<div class="row" style="margin-top:8px;gap:6px">
+<button class="btn-sm" id="popup-clear">Limpar</button>
+<button class="btn-sm" id="popup-close" style="border-color:var(--gold);color:var(--gold)">Fechar</button>
+</div>`;
+pop.innerHTML=html;
+const r=anchor.getBoundingClientRect();
+pop.style.left=Math.max(6,Math.min(r.left,window.innerWidth-236))+'px';
+pop.style.top=(r.bottom+4)+'px';
+pop.classList.remove('hidden');
+pop.querySelectorAll('[data-sort]').forEach(b=>b.onclick=()=>{SORT={key:b.dataset.sort,dir:b.dataset.dir};closeColPopup();render();});
+pop.querySelectorAll('.popup-chk').forEach(c=>c.onchange=()=>{
+if(c.checked)FILTERS[c.dataset.col].add(c.dataset.val);else FILTERS[c.dataset.col].delete(c.dataset.val);
+render();
+});
+const clearBtn=pop.querySelector('#popup-clear');
+if(clearBtn)clearBtn.onclick=()=>{if(colKey==='desc')FILTERS.desc='';else if(FILTERS[colKey])FILTERS[colKey].clear();closeColPopup();render();};
+const closeBtn=pop.querySelector('#popup-close');
+if(closeBtn)closeBtn.onclick=closeColPopup;
+if(colKey==='desc'){const inp=pop.querySelector('#popup-desc-input');inp.oninput=()=>{FILTERS.desc=inp.value;render();};}
+}
+document.addEventListener('click',e=>{
+const th=e.target.closest('.th-filter-cell');
+if(th){e.stopPropagation();openColPopup(th.dataset.col,th);return;}
+if(!e.target.closest('#col-filter-popup'))closeColPopup();
+});
+$('btn-clear-filters').onclick=()=>{FILTERS={desc:'',type:new Set(),nature:new Set(),category:new Set(),payment_method:new Set()};closeColPopup();render();};
+$('btn-open-lancar').onclick=()=>$('modal-lancar').classList.remove('hidden');
+$('btn-close-lancar').onclick=()=>$('modal-lancar').classList.add('hidden');
 const CYCLE=11;
 function cicloAtual(){const n=new Date();let f,t;if(n.getDate()>=CYCLE){f=new Date(n.getFullYear(),n.getMonth(),CYCLE);t=new Date(n.getFullYear(),n.getMonth()+1,CYCLE-1);}else{f=new Date(n.getFullYear(),n.getMonth()-1,CYCLE);t=new Date(n.getFullYear(),n.getMonth(),CYCLE-1);}const iso=d=>new Date(d.getTime()-d.getTimezoneOffset()*60000).toISOString().slice(0,10);return{from:iso(f),to:iso(t)};}
 let PERIOD=cicloAtual();
@@ -312,11 +345,11 @@ function renderCatChips(){
 $('f-cat').innerHTML=CATS.map(c=>`<button class="chip ${c===form.category?'on':''}" data-v="${c}">${c}</button>`).join('');
 }
 function render(){
-populateFilterOptions();
 $('p-de').value=PERIOD.from;$('p-ate').value=PERIOD.to;
 $('periodo').textContent='PERÍODO '+PERIOD.from.split('-').reverse().join('/')+' → '+PERIOD.to.split('-').reverse().join('/');
 const mtx=TX.filter(t=>!t.deleted&&t.validated!==false&&(t.date||'')>=PERIOD.from&&(t.date||'')<=PERIOD.to);
-const realTx=mtx.filter(t=>!t.is_investment&&!t.internal);
+CURRENT_MTX=mtx;
+const realTx=mtx.filter(t=>t.category!=='Investimento'&&!t.internal);
 const rec=realTx.filter(t=>t.type==='income').reduce((s,t)=>s+Number(t.value),0);
 const desp=realTx.filter(t=>t.type==='expense').reduce((s,t)=>s+Number(t.value),0);
 const saldo=rec-desp;
@@ -325,11 +358,8 @@ $('receitas').textContent=fmt(rec);$('despesas').textContent=fmt(desp);
 const porCat={};realTx.filter(t=>t.type==='expense').forEach(t=>porCat[t.category]=(porCat[t.category]||0)+Number(t.value));
 const entries=Object.entries(porCat).sort((a,b)=>b[1]-a[1]);const max=entries.length?entries[0][1]:1;
 $('cats').innerHTML=entries.length?entries.map(([c,v])=>`<div style="margin-top:10px"><div class="row" style="font-size:13px"><span>${c}</span><span class="mono dim">${fmt(v)}</span></div><div class="bar-track"><div class="bar-fill" style="width:${(v/max*100).toFixed(1)}%"></div></div></div>`).join(''):'<div class="msg">Sem despesas no período.</div>';
-const invEntries=mtx.filter(t=>t.is_investment);
-const invTotal=invEntries.reduce((s,t)=>s+Number(t.value),0);
-$('inv-total').textContent=fmt(invTotal);
-$('inv-list').innerHTML=invEntries.length?invEntries.map(t=>`<div class="row" style="font-size:13px;margin-top:6px"><span>${t.desc||''}</span><span class="mono gold">${fmt(t.value)}</span></div>`).join(''):'<div class="msg">Nenhum aporte classificado como investimento no período.</div>';
-const allSorted=applyFilters(mtx.slice().sort((a,b)=>(b.date||'').localeCompare(a.date||'')));
+$('btn-clear-filters').classList.toggle('hidden',!hasActiveFilters());
+const allSorted=applySort(applyFilters(mtx));
 $('tx-table').innerHTML=allSorted.length?buildTxTable(allSorted):'<div class="msg">Nenhuma transação no período.</div>';
 const gv=Object.entries(GOALS).filter(([,v])=>v>0);
 $('goals-view').innerHTML=gv.length?gv.map(([c,b])=>{const g=porCat[c]||0,p=Math.min(100,g/b*100),o=g>b;return`<div style="margin-top:10px"><div class="row" style="font-size:13px"><span>${c}</span><span class="mono ${o?'red':'dim'}">${fmt(g)} / ${fmt(b)}</span></div><div class="bar-track"><div class="bar-fill" style="width:${p.toFixed(1)}%;background:var(--${o?'red':'green'})"></div></div></div>`;}).join(''):'<div class="msg">Nenhuma meta definida.</div>';
@@ -372,8 +402,14 @@ await sb.from('audit_log').insert({transaction_id:a.transaction_id,action:'resto
 load();
 };
 function saldoOf(t){const sp=SPLITS[t.id]||[];const splitTotal=sp.reduce((s,x)=>s+Number(x.amount),0);return Number(t.value)-splitTotal;}
+function thCell(key,label){
+const fset=FILTERS[key];
+const active=key==='desc'?!!FILTERS.desc:(fset&&fset.size>0);
+const arrow=SORT.key===key?(SORT.dir==='asc'?' ▲':' ▼'):'';
+return `<th class="th-filter-cell" data-col="${key}"${active?' style="color:var(--gold)"':''}>${label}${arrow} ⌄</th>`;
+}
 function buildTxTable(rows){
-let h='<table class="tx-table"><tr><th>Data</th><th>Descrição</th><th>Valor</th><th>Saldo</th><th>Tipo</th><th>Nat.</th><th>Categoria</th><th>Forma</th><th>Inv.</th><th></th></tr>';
+let h='<table class="tx-table"><tr>'+thCell('date','Data')+thCell('desc','Descrição')+thCell('value','Valor')+'<th>Saldo</th>'+thCell('type','Tipo')+thCell('nature','Nat.')+thCell('category','Categoria')+thCell('payment_method','Forma')+'<th></th></tr>';
 rows.forEach(t=>{
 const sp=SPLITS[t.id]||[];
 const splitBadges=sp.map(s=>`<span class="split-badge">${s.people?.name||'?'}: ${fmt(s.amount)}</span>`).join(' ');
@@ -387,7 +423,6 @@ h+=`<tr>
 <td><select data-id="${t.id}" data-f="nature" class="row-edit"><option value="fixa" ${t.nature==='fixa'?'selected':''}>Fixa</option><option value="variavel" ${t.nature!=='fixa'?'selected':''}>Var.</option></select></td>
 <td><select data-id="${t.id}" data-f="category" class="row-edit">${CATS.map(c=>`<option value="${c}" ${c===t.category?'selected':''}>${c}</option>`).join('')}<option value="__new__">+ Nova...</option></select></td>
 <td><select data-id="${t.id}" data-f="payment_method" class="row-edit"><option value="" ${!t.payment_method?'selected':''}>—</option>${PAY_METHODS.map(p=>`<option value="${p}" ${p===t.payment_method?'selected':''}>${p}</option>`).join('')}${t.payment_method&&!PAY_METHODS.includes(t.payment_method)?`<option value="${t.payment_method}" selected>${t.payment_method}</option>`:''}</select></td>
-<td style="text-align:center"><input type="checkbox" data-id="${t.id}" data-f="is_investment" class="row-edit-chk" ${t.is_investment?'checked':''}></td>
 <td><button class="btn-sm" onclick="openSplit('${t.id}')">÷</button> <button class="btn-sm" style="color:var(--red)" onclick="delTx('${t.id}')">✕</button></td>
 </tr>`;
 });
@@ -483,7 +518,7 @@ return{
 'Natureza':t.nature==='fixa'?'Fixa':'Variável',
 'Categoria':t.category||'',
 'Forma de Pagamento':t.payment_method||'',
-'Investimento':t.is_investment?'Sim':'Não',
+'Investimento':t.category==='Investimento'?'Sim':'Não',
 'Interna':t.internal?'Sim':'Não',
 'Divisão':splitTxt,
 };
@@ -595,7 +630,6 @@ $('f-pay').onchange=()=>{form.paymentMethod=$('f-pay').value;};
 $('f-tipo').onclick=e=>{if(!e.target.dataset.v)return;form.type=e.target.dataset.v;[...$('f-tipo').children].forEach(c=>c.classList.toggle('on',c===e.target));};
 $('f-cat').onclick=e=>{if(!e.target.dataset.v)return;form.category=e.target.dataset.v;[...$('f-cat').children].forEach(c=>c.classList.toggle('on',c.dataset.v===form.category));};
 $('f-nature').onchange=()=>{form.nature=$('f-nature').value;};
-$('f-invest').onchange=()=>{form.invest=$('f-invest').checked;};
 $('btn-newcat').onclick=async()=>{
 const name=$('new-cat').value.trim();if(!name)return;
 await sb.from('categories').insert({name}).select();
@@ -614,7 +648,7 @@ $('btn-save').onclick=async()=>{
 const valor=parseFloat(($('f-valor').value||'').replace(',','.'));
 if(!$('f-desc').value||isNaN(valor)||valor<=0){$('save-msg').textContent='Preencha descrição e valor válidos.';return;}
 $('btn-save').disabled=true;
-const{data:inserted,error}=await sb.from('transactions').insert({desc:$('f-desc').value,value:valor,type:form.type,category:form.category,nature:form.nature,is_investment:form.invest,date:$('f-data').value||hoje(),source:'pwa',payment_method:form.paymentMethod}).select();
+const{data:inserted,error}=await sb.from('transactions').insert({desc:$('f-desc').value,value:valor,type:form.type,category:form.category,nature:form.nature,date:$('f-data').value||hoje(),source:'pwa',payment_method:form.paymentMethod}).select();
 $('btn-save').disabled=false;
 if(error){$('save-msg').textContent='Erro: '+error.message;return;}
 const splitRows=[...$('split-fields').querySelectorAll('.split-row')];
@@ -623,7 +657,7 @@ const txId=inserted[0].id;
 const splits=splitRows.map(r=>{const sel=r.querySelector('select');const inp=r.querySelector('input[type="number"]');return{transaction_id:txId,person_id:sel.value,amount:parseFloat(inp.value)||0};}).filter(s=>s.amount>0);
 if(splits.length)await sb.from('transaction_splits').insert(splits);
 }
-$('f-desc').value='';$('f-valor').value='';$('f-data').value=hoje();$('split-fields').innerHTML='';$('f-invest').checked=false;form.invest=false;
+$('f-desc').value='';$('f-valor').value='';$('f-data').value=hoje();$('split-fields').innerHTML='';
 $('save-msg').textContent='Lançado. ✓';load();
 };
 $('btn-cam').onclick=()=>$('file-cam').click();$('btn-gal').onclick=()=>$('file-gal').click();
@@ -653,7 +687,7 @@ $('chat').innerHTML=CHAT_HISTORY.map(m=>`<div class="bubble ${m.role==='user'?'b
 }
 async function ask(){const q=$('ask-input').value.trim();if(!q)return;$('ask-input').value='';$('chat-empty').classList.add('hidden');$('chat').insertAdjacentHTML('beforeend','<div class="bubble b-user"></div>');$('chat').lastChild.textContent=q;$('ask-spin').classList.remove('hidden');try{const historyText=CHAT_HISTORY.slice(-10).map(m=>`${m.role==='user'?'Usuário':'Assistente'}: ${m.content}`).join('\n');const out=await callFn({mode:'ask',question:q,history:historyText,transactions:TX.filter(t=>!t.deleted&&t.validated!==false).slice(0,1500).map(t=>`${t.date}|${t.desc}|${t.type==='income'?'+':'-'}${t.value}|${t.category}`).join('\n'),goals:GOALS});const answer=out.text||'Sem resposta.';$('chat').insertAdjacentHTML('beforeend','<div class="bubble b-bot"></div>');$('chat').lastChild.innerHTML=mdToHtml(answer);sb.from('chat_messages').insert([{role:'user',content:q},{role:'assistant',content:answer}]).then(()=>{});CHAT_HISTORY.push({role:'user',content:q},{role:'assistant',content:answer});}catch(err){$('chat').insertAdjacentHTML('beforeend','<div class="bubble b-bot">Erro ao consultar.</div>');}$('ask-spin').classList.add('hidden');window.scrollTo(0,document.body.scrollHeight);}
 async function callFn(body){const{data:{session}}=await sb.auth.getSession();const res=await fetch(FN_URL,{method:'POST',headers:{'Content-Type':'application/json','Authorization':'Bearer '+session.access_token},body:JSON.stringify(body)});if(!res.ok)throw new Error('fn '+res.status);return res.json();}
-document.querySelector('.tabbar').onclick=e=>{const tab=e.target.closest('.tab')?.dataset.tab;if(!tab)return;['painel','lancar','previsoes','validacao','historico','perguntar'].forEach(t=>$('tab-'+t).classList.toggle('hidden',t!==tab));[...document.querySelectorAll('.tab')].forEach(b=>b.classList.toggle('on',b.dataset.tab===tab));};
+document.querySelector('.tabbar').onclick=e=>{const tab=e.target.closest('.tab')?.dataset.tab;if(!tab)return;['painel','previsoes','validacao','historico','perguntar'].forEach(t=>$('tab-'+t).classList.toggle('hidden',t!==tab));[...document.querySelectorAll('.tab')].forEach(b=>b.classList.toggle('on',b.dataset.tab===tab));};
 if('serviceWorker' in navigator)navigator.serviceWorker.register('sw.js').catch(()=>{});
 boot();
 </script>
