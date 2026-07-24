@@ -214,6 +214,10 @@ table.tx-table .split-badge { display:inline-block; background:var(--line); colo
 <div class="label">Nova pessoa</div>
 <div class="row" style="margin-top:4px"><input id="new-person" placeholder="Nome" style="margin-top:0;flex:1"><button class="btn-sm" id="btn-new-person">+</button></div>
 </div>
+<div style="margin-top:12px">
+<div class="label">Gerenciar pessoas</div>
+<div id="people-manage-list" style="margin-top:4px"></div>
+</div>
 <div class="row" style="margin-top:12px">
 <button class="btn-sm" onclick="document.getElementById('modal-split').classList.add('hidden')">Cancelar</button>
 <button class="btn" id="btn-save-split" style="width:auto;margin-top:0;padding:10px 20px">Salvar</button>
@@ -248,7 +252,11 @@ function populateFilterOptions(){
 const catSel=$('filt-cat');
 if(catSel.options.length<=1)catSel.innerHTML='<option value="">Categoria</option>'+CATS.map(c=>`<option value="${c}">${c}</option>`).join('');
 const paySel=$('filt-pay');
-if(paySel.options.length<=1)paySel.innerHTML='<option value="">Forma</option>'+PAY_METHODS.map(p=>`<option value="${p}">${p}</option>`).join('');
+if(paySel.options.length<=1){
+const dynamic=[...new Set(TX.map(t=>t.payment_method).filter(Boolean))];
+const allPay=[...new Set([...PAY_METHODS,...dynamic])].sort((a,b)=>a.localeCompare(b,'pt-BR'));
+paySel.innerHTML='<option value="">Forma</option>'+allPay.map(p=>`<option value="${p}">${p}</option>`).join('');
+}
 }
 $('filt-desc').oninput=()=>{FILTERS.desc=$('filt-desc').value;render();};
 $('filt-type').onchange=()=>{FILTERS.type=$('filt-type').value;render();};
@@ -492,6 +500,7 @@ $('modal-split-desc').textContent=`${tx.desc} — ${fmt(tx.value)}`;
 $('modal-split').dataset.txid=txId;
 const existing=SPLITS[txId]||[];
 renderSplitRows(existing);
+renderPeopleManageList();
 $('modal-split').classList.remove('hidden');
 };
 function renderSplitRows(rows){
@@ -507,10 +516,33 @@ const div=document.createElement('div');div.className='split-row';
 div.innerHTML=`<select>${PEOPLE.map(p=>`<option value="${p.id}">${p.name}</option>`).join('')}</select><input type="number" value="0" style="width:100px" step="0.01"><button class="btn-sm" onclick="this.parentElement.remove()">✕</button>`;
 $('modal-split-rows').appendChild(div);
 };
+function renderPeopleManageList(){
+const el=$('people-manage-list');if(!el)return;
+if(!PEOPLE.length){el.innerHTML='<div class="msg">Nenhuma pessoa cadastrada.</div>';return;}
+el.innerHTML=PEOPLE.map(p=>`<div class="row" style="margin-top:4px;align-items:center">
+<span style="flex:1">${p.name}</span>
+<button class="btn-sm del-person" data-pid="${p.id}" data-pname="${p.name}" style="margin-top:0">✕</button>
+</div>`).join('');
+el.querySelectorAll('.del-person').forEach(btn=>{
+btn.onclick=async()=>{
+const pid=btn.dataset.pid,pname=btn.dataset.pname;
+if(!confirm('Excluir "'+pname+'" da lista de pessoas?'))return;
+const{error}=await sb.from('people').delete().eq('id',pid);
+if(error){
+if(error.code==='23503')alert('Não foi possível excluir "'+pname+'": essa pessoa ainda está usada em divisões de transações existentes. Remova ou reatribua essas divisões primeiro.');
+else alert('Erro ao excluir: '+error.message);
+return;
+}
+const{data}=await sb.from('people').select('*');PEOPLE=data||[];
+renderPeopleManageList();
+};
+});
+}
 $('btn-new-person').onclick=async()=>{
 const name=$('new-person').value.trim();if(!name)return;
 await sb.from('people').insert({name});$('new-person').value='';
 const{data}=await sb.from('people').select('*');PEOPLE=data||[];
+renderPeopleManageList();
 };
 $('btn-save-split').onclick=async()=>{
 const txId=$('modal-split').dataset.txid;
