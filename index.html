@@ -127,6 +127,15 @@ table.tx-table .split-badge { display:inline-block; background:var(--line); colo
 <div id="fc-view"></div><div id="fc-edit" class="hidden"></div>
 </div>
 </div>
+<div id="tab-investimentos" class="hidden">
+<div class="card"><div class="label">Patrimônio (ativos)</div><div class="big mono gold" id="inv-total-patrimonio">—</div><div class="msg" id="inv-count-msg"></div></div>
+<div class="card"><div class="label">Por instituição</div><div id="inv-by-issuer"></div></div>
+<div class="card">
+<div class="row"><div class="label">Investimentos</div><button class="btn-sm" id="btn-toggle-inv-inactive">Mostrar resgatados</button></div>
+<div class="msg">Sincronizado via Open Finance junto com o Sync do Painel.</div>
+<div class="tx-scroll" id="inv-table"></div>
+</div>
+</div>
 <div id="tab-validacao" class="hidden">
 <div class="card">
 <div class="label">Transações pendentes de validação</div>
@@ -185,6 +194,7 @@ table.tx-table .split-badge { display:inline-block; background:var(--line); colo
 <div class="tabbar-inner">
 <button class="tab on" data-tab="painel">Painel</button>
 <button class="tab" data-tab="previsoes">Previsões</button>
+<button class="tab" data-tab="investimentos">Investir</button>
 <button class="tab" data-tab="validacao">Validação<span id="val-count" class="hidden" style="background:var(--gold);color:var(--bg);border-radius:8px;padding:1px 5px;font-size:9px;margin-left:3px;font-weight:700"></span></button>
 <button class="tab" data-tab="historico">Histórico</button>
 <button class="tab" data-tab="perguntar">Perguntar</button>
@@ -224,7 +234,7 @@ const sb=createClient(SB_URL,SB_KEY);
 const $=id=>document.getElementById(id);
 const fmt=n=>'R$ '+Number(n).toLocaleString('pt-BR',{minimumFractionDigits:2});
 const hoje=()=>new Date().toISOString().slice(0,10);
-let TX=[],GOALS={},FC=[],INC=[],PEOPLE=[],SPLITS={},AUDIT=[],PENDING=[],form={type:'expense',category:'Outros',nature:'variavel'};
+let TX=[],GOALS={},FC=[],INC=[],PEOPLE=[],SPLITS={},AUDIT=[],PENDING=[],INVESTMENTS=[],SHOW_INACTIVE_INV=false,form={type:'expense',category:'Outros',nature:'variavel'};
 function freshFilters(){return{desc:'',date:{from:'',to:''},value:{min:'',max:''},saldo:{min:'',max:''},type:new Set(),nature:new Set(),category:new Set(),payment_method:new Set()};}
 let FILTERS=freshFilters();
 let SORT={key:'date',dir:'desc'};
@@ -338,6 +348,7 @@ if(!e.target.closest('#col-filter-popup'))closeColPopup();
 $('btn-clear-filters').onclick=()=>{FILTERS=freshFilters();closeColPopup();render();};
 $('btn-open-lancar').onclick=()=>$('modal-lancar').classList.remove('hidden');
 $('btn-close-lancar').onclick=()=>$('modal-lancar').classList.add('hidden');
+$('btn-toggle-inv-inactive').onclick=()=>{SHOW_INACTIVE_INV=!SHOW_INACTIVE_INV;$('btn-toggle-inv-inactive').textContent=SHOW_INACTIVE_INV?'Ocultar resgatados':'Mostrar resgatados';renderInvestments();};
 const CYCLE=11;
 function cicloAtual(){const n=new Date();let f,t;if(n.getDate()>=CYCLE){f=new Date(n.getFullYear(),n.getMonth(),CYCLE);t=new Date(n.getFullYear(),n.getMonth()+1,CYCLE-1);}else{f=new Date(n.getFullYear(),n.getMonth()-1,CYCLE);t=new Date(n.getFullYear(),n.getMonth(),CYCLE-1);}const iso=d=>new Date(d.getTime()-d.getTimezoneOffset()*60000).toISOString().slice(0,10);return{from:iso(f),to:iso(t)};}
 let PERIOD=cicloAtual();
@@ -382,7 +393,7 @@ setTimeout(()=>ss.classList.add('hidden'),15000);
 }
 $('btn-sync').onclick=doSync;
 async function load(){
-const[t,g,f,ic,p,sp,c,au]=await Promise.all([
+const[t,g,f,ic,p,sp,c,au,inv]=await Promise.all([
 sb.from('transactions').select('*').order('date',{ascending:false}).limit(3000),
 sb.from('goals').select('*'),
 sb.from('forecasts').select('*'),
@@ -391,11 +402,13 @@ sb.from('people').select('*'),
 sb.from('transaction_splits').select('*,people(name)'),
 sb.from('categories').select('*').order('name'),
 sb.from('audit_log').select('*,transactions(desc)').order('created_at',{ascending:false}).limit(300),
+sb.from('investments').select('*').order('balance',{ascending:false}),
 ]);
 TX=t.data||[];GOALS={};(g.data||[]).forEach(x=>GOALS[x.category]=Number(x.amount));
 FC=f.data||[];INC=ic.data||[];PEOPLE=p.data||[];
 CATS=(c.data||[]).map(x=>x.name);if(!CATS.length)CATS=['Outros'];
 AUDIT=au.data||[];
+INVESTMENTS=inv.data||[];
 PENDING=TX.filter(t=>!t.deleted&&t.validated===false);
 const vc=$('val-count');if(PENDING.length&&MY_ROLE==='owner'){vc.textContent=PENDING.length;vc.classList.remove('hidden');}else{vc.classList.add('hidden');}
 SPLITS={};(sp.data||[]).forEach(s=>{if(!SPLITS[s.transaction_id])SPLITS[s.transaction_id]=[];SPLITS[s.transaction_id].push(s);});
@@ -426,6 +439,38 @@ $('tx-table').innerHTML=allSorted.length?buildTxTable(allSorted):'<div class="ms
 renderForecasts();
 renderHistorico();
 renderValidation();
+renderInvestments();
+}
+function renderInvestments(){
+const rows=SHOW_INACTIVE_INV?INVESTMENTS:INVESTMENTS.filter(i=>Number(i.balance)>0);
+const total=rows.reduce((s,i)=>s+Number(i.balance||0),0);
+$('inv-total-patrimonio').textContent=fmt(total);
+$('inv-count-msg').textContent=rows.length+' posição(ões) ativa(s)'+(INVESTMENTS.length>rows.length?' — '+(INVESTMENTS.length-rows.length)+' resgatada(s) oculta(s)':'');
+const byIssuer={};
+rows.forEach(i=>{const key=i.issuer||(i.subtype==='TREASURY'?'Tesouro Nacional':(i.subtype||'Outros'));byIssuer[key]=(byIssuer[key]||0)+Number(i.balance||0);});
+const entries=Object.entries(byIssuer).sort((a,b)=>b[1]-a[1]);const max=entries.length?entries[0][1]:1;
+$('inv-by-issuer').innerHTML=entries.length?entries.map(([k,v])=>`<div style="margin-top:10px"><div class="row" style="font-size:13px"><span>${k}</span><span class="mono dim">${fmt(v)}</span></div><div class="bar-track"><div class="bar-fill" style="width:${(v/max*100).toFixed(1)}%"></div></div></div>`).join(''):'<div class="msg">Nenhum investimento ativo.</div>';
+const SUB_LABEL={CDB:'CDB',TREASURY:'Tesouro Direto',LCA:'LCA',LCI:'LCI',STOCK:'Ações',MUTUAL_FUND:'Fundo',COE:'COE',SECURITY:'Título'};
+const sorted=rows.slice().sort((a,b)=>Number(b.balance||0)-Number(a.balance||0));
+let h='<table class="tx-table"><tr><th>Nome</th><th>Instituição</th><th>Tipo</th><th>Saldo</th><th>Taxa</th><th>Vencimento</th><th>Status</th></tr>';
+sorted.forEach(i=>{
+const inst=i.issuer||(i.subtype==='TREASURY'?'Tesouro Nacional':'—');
+const tipo=SUB_LABEL[i.subtype]||i.subtype||i.type||'—';
+const taxa=i.rate?(Number(i.rate).toFixed(0)+'% '+(i.rate_type||'')):(i.fixed_annual_rate?Number(i.fixed_annual_rate).toFixed(2)+'% a.a.':'—');
+const venc=i.due_date?i.due_date.split('-').reverse().join('/'):'—';
+const statusLabel=i.status==='ACTIVE'?'Ativo':(i.status==='TOTAL_WITHDRAWAL'?'Resgatado':(i.status||'—'));
+h+=`<tr>
+<td>${i.name||'—'}</td>
+<td>${inst}</td>
+<td>${tipo}</td>
+<td class="mono ${i.status==='ACTIVE'?'green':'dim'}">${fmt(i.balance||0)}</td>
+<td class="mono dim">${taxa}</td>
+<td class="mono dim">${venc}</td>
+<td>${statusLabel}</td>
+</tr>`;
+});
+h+='</table>';
+$('inv-table').innerHTML=sorted.length?h:'<div class="msg">Nenhum investimento encontrado.</div>';
 }
 function renderForecasts(){
 const incTotal=INC.reduce((s,i)=>s+Number(i.amount),0);
@@ -799,7 +844,7 @@ else{$('invite-msg').innerHTML='<span class="green">Acesso criado ✓</span><br>
 }catch(e){$('invite-msg').textContent='Falha: '+e.message;}
 $('btn-invite').disabled=false;
 };
-document.querySelector('.tabbar').onclick=e=>{const tab=e.target.closest('.tab')?.dataset.tab;if(!tab)return;['painel','previsoes','validacao','historico','perguntar'].forEach(t=>$('tab-'+t).classList.toggle('hidden',t!==tab));[...document.querySelectorAll('.tab')].forEach(b=>b.classList.toggle('on',b.dataset.tab===tab));};
+document.querySelector('.tabbar').onclick=e=>{const tab=e.target.closest('.tab')?.dataset.tab;if(!tab)return;['painel','previsoes','investimentos','validacao','historico','perguntar'].forEach(t=>$('tab-'+t).classList.toggle('hidden',t!==tab));[...document.querySelectorAll('.tab')].forEach(b=>b.classList.toggle('on',b.dataset.tab===tab));};
 if('serviceWorker' in navigator)navigator.serviceWorker.register('sw.js').catch(()=>{});
 boot();
 </script>
