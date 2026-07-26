@@ -109,13 +109,6 @@ table.tx-table .split-badge { display:inline-block; background:var(--line); colo
 <div class="tx-scroll" id="tx-table"></div>
 </div>
 <div class="card"><div class="label">Gastos por categoria</div><div class="msg" style="margin-top:0">Segue os filtros da tabela acima.</div><div id="cats"></div></div>
-<div class="card owner-only hidden">
-<div class="label">Adicionar usuário</div>
-<div class="msg">Convide alguém pra acessar o app com o próprio login (ex: sua esposa). A aba Validação e transações marcadas como sigilosas continuam visíveis só pra você.</div>
-<input id="invite-email" type="email" placeholder="E-mail da pessoa" style="margin-top:8px">
-<button class="btn-sm" id="btn-invite" style="margin-top:8px">Convidar</button>
-<div class="msg" id="invite-msg"></div>
-</div>
 </div>
 <div id="tab-previsoes" class="hidden">
 <div class="card">
@@ -128,11 +121,15 @@ table.tx-table .split-badge { display:inline-block; background:var(--line); colo
 </div>
 </div>
 <div id="tab-investimentos" class="hidden">
-<div class="card"><div class="label">Patrimônio (ativos)</div><div class="big mono gold" id="inv-total-patrimonio">—</div><div class="msg" id="inv-count-msg"></div></div>
+<div class="grid2">
+<div class="card"><div class="label">Patrimônio (ativos)</div><div class="big mono gold" id="inv-total-patrimonio">—</div></div>
+<div class="card"><div class="label">Rendimento</div><div class="med mono" id="inv-total-rendimento">—</div><div class="msg" id="inv-rendimento-pct" style="margin-top:2px"></div></div>
+</div>
+<div class="card"><div class="label">Por tipo de investimento</div><div id="inv-by-type"></div></div>
 <div class="card"><div class="label">Por instituição</div><div id="inv-by-issuer"></div></div>
 <div class="card">
 <div class="row"><div class="label">Investimentos</div><button class="btn-sm" id="btn-toggle-inv-inactive">Mostrar resgatados</button></div>
-<div class="msg">Sincronizado via Open Finance junto com o Sync do Painel.</div>
+<div class="msg" id="inv-count-msg">Sincronizado via Open Finance junto com o Sync do Painel.</div>
 <div class="tx-scroll" id="inv-table"></div>
 </div>
 </div>
@@ -143,7 +140,17 @@ table.tx-table .split-badge { display:inline-block; background:var(--line); colo
 <div class="tx-scroll" id="validation-table"></div>
 </div>
 </div>
-<div id="tab-historico" class="hidden">
+<div id="tab-gestao" class="hidden">
+<div class="card">
+<div class="label">Usuários</div>
+<div class="msg">Convide, redefina senha ou remova acessos. Só o proprietário vê esta aba.</div>
+<div id="users-list" style="margin-top:8px"></div>
+<div class="row" style="margin-top:12px;gap:6px">
+<input id="invite-email" type="email" placeholder="E-mail da nova pessoa" style="margin-top:0;flex:1">
+<button class="btn-sm" id="btn-invite">Convidar</button>
+</div>
+<div class="msg" id="invite-msg"></div>
+</div>
 <div class="card">
 <div class="label">Histórico de alterações e exclusões</div>
 <div class="msg">Toda edição ou exclusão fica registrada aqui e pode ser revertida. Novas sincronizações nunca sobrescrevem o que já foi alterado.</div>
@@ -196,7 +203,7 @@ table.tx-table .split-badge { display:inline-block; background:var(--line); colo
 <button class="tab" data-tab="previsoes">Previsões</button>
 <button class="tab" data-tab="investimentos">Investir</button>
 <button class="tab" data-tab="validacao">Validação<span id="val-count" class="hidden" style="background:var(--gold);color:var(--bg);border-radius:8px;padding:1px 5px;font-size:9px;margin-left:3px;font-weight:700"></span></button>
-<button class="tab" data-tab="historico">Histórico</button>
+<button class="tab" data-tab="gestao">Gestão</button>
 <button class="tab" data-tab="perguntar">Perguntar</button>
 </div>
 </div>
@@ -359,8 +366,8 @@ function applyRoleUI(){
 const ownerOnly=document.querySelectorAll('.owner-only');
 ownerOnly.forEach(el=>el.classList.toggle('hidden',MY_ROLE!=='owner'));
 if(MY_ROLE!=='owner'){
-document.querySelector('.tab[data-tab="validacao"]').classList.add('hidden');
-if(document.querySelector('.tab.on[data-tab="validacao"]')){
+['validacao','gestao'].forEach(t=>document.querySelector(`.tab[data-tab="${t}"]`).classList.add('hidden'));
+if(document.querySelector('.tab.on[data-tab="validacao"]')||document.querySelector('.tab.on[data-tab="gestao"]')){
 document.querySelector('.tab[data-tab="painel"]').click();
 }
 }
@@ -444,26 +451,40 @@ renderInvestments();
 function renderInvestments(){
 const rows=SHOW_INACTIVE_INV?INVESTMENTS:INVESTMENTS.filter(i=>Number(i.balance)>0);
 const total=rows.reduce((s,i)=>s+Number(i.balance||0),0);
+const totalInvested=rows.reduce((s,i)=>s+Number(i.amount_original||i.balance||0),0);
+const rendimento=total-totalInvested;
+const rendPct=totalInvested>0?(rendimento/totalInvested*100):0;
 $('inv-total-patrimonio').textContent=fmt(total);
+$('inv-total-rendimento').textContent=fmt(rendimento);
+$('inv-total-rendimento').className='med mono '+(rendimento>=0?'green':'red');
+$('inv-rendimento-pct').textContent=totalInvested>0?(rendimento>=0?'+':'')+rendPct.toFixed(2)+'% sobre o valor investido':'';
 $('inv-count-msg').textContent=rows.length+' posição(ões) ativa(s)'+(INVESTMENTS.length>rows.length?' — '+(INVESTMENTS.length-rows.length)+' resgatada(s) oculta(s)':'');
+const SUB_LABEL={CDB:'CDB',TREASURY:'Tesouro Direto',LCA:'LCA',LCI:'LCI',STOCK:'Ações',MUTUAL_FUND:'Fundo',COE:'COE',SECURITY:'Título'};
 const byIssuer={};
 rows.forEach(i=>{const key=i.issuer||(i.subtype==='TREASURY'?'Tesouro Nacional':(i.subtype||'Outros'));byIssuer[key]=(byIssuer[key]||0)+Number(i.balance||0);});
-const entries=Object.entries(byIssuer).sort((a,b)=>b[1]-a[1]);const max=entries.length?entries[0][1]:1;
-$('inv-by-issuer').innerHTML=entries.length?entries.map(([k,v])=>`<div style="margin-top:10px"><div class="row" style="font-size:13px"><span>${k}</span><span class="mono dim">${fmt(v)}</span></div><div class="bar-track"><div class="bar-fill" style="width:${(v/max*100).toFixed(1)}%"></div></div></div>`).join(''):'<div class="msg">Nenhum investimento ativo.</div>';
-const SUB_LABEL={CDB:'CDB',TREASURY:'Tesouro Direto',LCA:'LCA',LCI:'LCI',STOCK:'Ações',MUTUAL_FUND:'Fundo',COE:'COE',SECURITY:'Título'};
+const issuerEntries=Object.entries(byIssuer).sort((a,b)=>b[1]-a[1]);const maxIssuer=issuerEntries.length?issuerEntries[0][1]:1;
+$('inv-by-issuer').innerHTML=issuerEntries.length?issuerEntries.map(([k,v])=>`<div style="margin-top:10px"><div class="row" style="font-size:13px"><span>${k}</span><span class="mono dim">${fmt(v)}</span></div><div class="bar-track"><div class="bar-fill" style="width:${(v/maxIssuer*100).toFixed(1)}%"></div></div></div>`).join(''):'<div class="msg">Nenhum investimento ativo.</div>';
+const byType={};
+rows.forEach(i=>{const key=SUB_LABEL[i.subtype]||i.subtype||i.type||'Outros';byType[key]=(byType[key]||0)+Number(i.balance||0);});
+const typeEntries=Object.entries(byType).sort((a,b)=>b[1]-a[1]);const maxType=typeEntries.length?typeEntries[0][1]:1;
+$('inv-by-type').innerHTML=typeEntries.length?typeEntries.map(([k,v])=>`<div style="margin-top:10px"><div class="row" style="font-size:13px"><span>${k}</span><span class="mono dim">${fmt(v)}${total>0?` <span class="dim">(${(v/total*100).toFixed(0)}%)</span>`:''}</span></div><div class="bar-track"><div class="bar-fill" style="width:${(v/maxType*100).toFixed(1)}%"></div></div></div>`).join(''):'<div class="msg">Nenhum investimento ativo.</div>';
 const sorted=rows.slice().sort((a,b)=>Number(b.balance||0)-Number(a.balance||0));
-let h='<table class="tx-table"><tr><th>Nome</th><th>Instituição</th><th>Tipo</th><th>Saldo</th><th>Taxa</th><th>Vencimento</th><th>Status</th></tr>';
+let h='<table class="tx-table"><tr><th>Nome</th><th>Instituição</th><th>Tipo</th><th>Investido</th><th>Saldo</th><th>Rendimento</th><th>Taxa</th><th>Vencimento</th><th>Status</th></tr>';
 sorted.forEach(i=>{
 const inst=i.issuer||(i.subtype==='TREASURY'?'Tesouro Nacional':'—');
 const tipo=SUB_LABEL[i.subtype]||i.subtype||i.type||'—';
 const taxa=i.rate?(Number(i.rate).toFixed(0)+'% '+(i.rate_type||'')):(i.fixed_annual_rate?Number(i.fixed_annual_rate).toFixed(2)+'% a.a.':'—');
 const venc=i.due_date?i.due_date.split('-').reverse().join('/'):'—';
 const statusLabel=i.status==='ACTIVE'?'Ativo':(i.status==='TOTAL_WITHDRAWAL'?'Resgatado':(i.status||'—'));
+const invested=Number(i.amount_original||i.balance||0);
+const rend=Number(i.balance||0)-invested;
 h+=`<tr>
 <td>${i.name||'—'}</td>
 <td>${inst}</td>
 <td>${tipo}</td>
+<td class="mono dim">${fmt(invested)}</td>
 <td class="mono ${i.status==='ACTIVE'?'green':'dim'}">${fmt(i.balance||0)}</td>
+<td class="mono ${rend>=0?'green':'red'}">${fmt(rend)}</td>
 <td class="mono dim">${taxa}</td>
 <td class="mono dim">${venc}</td>
 <td>${statusLabel}</td>
@@ -832,19 +853,44 @@ $('chat').innerHTML=CHAT_HISTORY.map(m=>`<div class="bubble ${m.role==='user'?'b
 }
 async function ask(){const q=$('ask-input').value.trim();if(!q)return;$('ask-input').value='';$('chat-empty').classList.add('hidden');$('chat').insertAdjacentHTML('beforeend','<div class="bubble b-user"></div>');$('chat').lastChild.textContent=q;$('ask-spin').classList.remove('hidden');try{const historyText=CHAT_HISTORY.slice(-10).map(m=>`${m.role==='user'?'Usuário':'Assistente'}: ${m.content}`).join('\n');const out=await callFn({mode:'ask',question:q,history:historyText,transactions:TX.filter(t=>!t.deleted&&t.validated!==false).slice(0,1500).map(t=>`${t.date}|${t.desc}|${t.type==='income'?'+':'-'}${t.value}|${t.category}|${t.payment_method||'—'}`).join('\n'),goals:GOALS,currentPeriodFrom:PERIOD.from,currentPeriodTo:PERIOD.to});const answer=out.text||'Sem resposta.';$('chat').insertAdjacentHTML('beforeend','<div class="bubble b-bot"></div>');$('chat').lastChild.innerHTML=mdToHtml(answer);sb.from('chat_messages').insert([{role:'user',content:q},{role:'assistant',content:answer}]).then(()=>{});CHAT_HISTORY.push({role:'user',content:q},{role:'assistant',content:answer});}catch(err){$('chat').insertAdjacentHTML('beforeend','<div class="bubble b-bot">Erro ao consultar.</div>');}$('ask-spin').classList.add('hidden');window.scrollTo(0,document.body.scrollHeight);}
 async function callFn(body){const{data:{session}}=await sb.auth.getSession();const res=await fetch(FN_URL,{method:'POST',headers:{'Content-Type':'application/json','Authorization':'Bearer '+session.access_token},body:JSON.stringify(body)});if(!res.ok)throw new Error('fn '+res.status);return res.json();}
+async function callAdminUsers(action,extra){
+const{data:{session}}=await sb.auth.getSession();
+const res=await fetch(SB_URL+'/functions/v1/admin-users',{method:'POST',headers:{'Content-Type':'application/json','Authorization':'Bearer '+session.access_token},body:JSON.stringify({action,...extra})});
+const data=await res.json();
+if(!res.ok||data.error)throw new Error(data.error||('HTTP '+res.status));
+return data;
+}
+async function renderUsersList(){
+const el=$('users-list');
+el.innerHTML='<div class="msg">Carregando...</div>';
+try{
+const{data:{session}}=await sb.auth.getSession();
+const data=await callAdminUsers('list');
+el.innerHTML=data.users.map(u=>`<div class="row" style="margin-top:8px;align-items:center">
+<span style="flex:1;font-size:13px">${u.email||'(sem e-mail)'} ${u.role==='owner'?'<span class="gold" style="font-size:10px">★ proprietário</span>':'<span class="dim" style="font-size:10px">membro</span>'}</span>
+${u.id!==session.user.id?`<button class="btn-sm btn-reset-pw" data-uid="${u.id}" data-uemail="${u.email}">Nova senha</button> <button class="btn-sm btn-del-user" style="color:var(--red)" data-uid="${u.id}" data-uemail="${u.email}">Excluir</button>`:'<span class="dim" style="font-size:11px">você</span>'}
+</div>`).join('');
+el.querySelectorAll('.btn-reset-pw').forEach(b=>b.onclick=async()=>{
+if(!confirm('Gerar nova senha temporária para '+b.dataset.uemail+'?'))return;
+try{const r=await callAdminUsers('setPassword',{userId:b.dataset.uid});alert('Nova senha para '+b.dataset.uemail+':\n\n'+r.newPassword+'\n\nAnote agora, não será mostrada de novo.');}catch(e){alert('Erro: '+e.message);}
+});
+el.querySelectorAll('.btn-del-user').forEach(b=>b.onclick=async()=>{
+if(!confirm('Excluir o acesso de '+b.dataset.uemail+'? Isso não apaga transações, só remove o login.'))return;
+try{await callAdminUsers('delete',{userId:b.dataset.uid});renderUsersList();}catch(e){alert('Erro: '+e.message);}
+});
+}catch(e){el.innerHTML='<div class="msg">Erro ao carregar: '+e.message+'</div>';}
+}
 $('btn-invite').onclick=async()=>{
 const email=$('invite-email').value.trim();if(!email)return;
 $('btn-invite').disabled=true;$('invite-msg').textContent='Criando acesso...';
 try{
-const{data:{session}}=await sb.auth.getSession();
-const res=await fetch(SB_URL+'/functions/v1/admin-create-user',{method:'POST',headers:{'Content-Type':'application/json','Authorization':'Bearer '+session.access_token},body:JSON.stringify({email})});
-const data=await res.json();
-if(!res.ok||data.error){$('invite-msg').innerHTML='<span class="red">Erro: '+(data.error||res.status)+'</span>';}
-else{$('invite-msg').innerHTML='<span class="green">Acesso criado ✓</span><br>E-mail: '+data.email+'<br>Senha temporária: <b class="mono">'+data.tempPassword+'</b><br>Anote agora — não será mostrada de novo. Compartilhe com segurança e recomende trocar a senha depois.';$('invite-email').value='';}
-}catch(e){$('invite-msg').textContent='Falha: '+e.message;}
+const data=await callAdminUsers('invite',{email});
+$('invite-msg').innerHTML='<span class="green">Acesso criado ✓</span><br>E-mail: '+data.email+'<br>Senha temporária: <b class="mono">'+data.tempPassword+'</b><br>Anote agora — não será mostrada de novo. Compartilhe com segurança e recomende trocar a senha depois.';$('invite-email').value='';
+renderUsersList();
+}catch(e){$('invite-msg').innerHTML='<span class="red">Erro: '+e.message+'</span>';}
 $('btn-invite').disabled=false;
 };
-document.querySelector('.tabbar').onclick=e=>{const tab=e.target.closest('.tab')?.dataset.tab;if(!tab)return;['painel','previsoes','investimentos','validacao','historico','perguntar'].forEach(t=>$('tab-'+t).classList.toggle('hidden',t!==tab));[...document.querySelectorAll('.tab')].forEach(b=>b.classList.toggle('on',b.dataset.tab===tab));};
+document.querySelector('.tabbar').onclick=e=>{const tab=e.target.closest('.tab')?.dataset.tab;if(!tab)return;['painel','previsoes','investimentos','validacao','gestao','perguntar'].forEach(t=>$('tab-'+t).classList.toggle('hidden',t!==tab));[...document.querySelectorAll('.tab')].forEach(b=>b.classList.toggle('on',b.dataset.tab===tab));if(tab==='gestao'&&MY_ROLE==='owner')renderUsersList();};
 if('serviceWorker' in navigator)navigator.serviceWorker.register('sw.js').catch(()=>{});
 boot();
 </script>
