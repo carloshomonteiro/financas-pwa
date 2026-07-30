@@ -381,6 +381,16 @@ MY_ROLE=profile?.role||'member';
 }
 applyRoleUI();
 await load();doSync();
+startAutoRefresh();
+}
+let AUTO_REFRESH_TIMER=null;
+function startAutoRefresh(){
+if(AUTO_REFRESH_TIMER)clearInterval(AUTO_REFRESH_TIMER);
+// Só relê o nosso banco (leve, sem chamar a Pluggy) — os dados novos já chegam sozinhos via webhook.
+AUTO_REFRESH_TIMER=setInterval(()=>{if(document.visibilityState==='visible')load();},5*60*1000);
+document.addEventListener('visibilitychange',()=>{
+if(document.visibilityState==='visible'&&!$('view-app').classList.contains('hidden'))load();
+});
 }
 $('btn-login').onclick=async()=>{$('login-msg').textContent='Entrando…';const{error}=await sb.auth.signInWithPassword({email:$('login-email').value.trim(),password:$('login-pass').value});if(error){$('login-msg').textContent='E-mail ou senha incorretos.';return;}showApp();};
 $('btn-logout').onclick=async()=>{await sb.auth.signOut();location.reload();};
