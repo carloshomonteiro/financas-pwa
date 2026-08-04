@@ -135,6 +135,11 @@ table.tx-table .split-badge { display:inline-block; background:var(--line); colo
 </div>
 <div id="tab-validacao" class="hidden">
 <div class="card">
+<div class="label">Conferência de faturas</div>
+<div class="msg">Compara o total oficial de cada fatura fechada (informado pelo banco) com a soma das transações registradas aqui. Diferenças indicam transações que o Open Finance não entregou — confira no app do banco e lance manualmente o que faltar.</div>
+<div id="bill-audit"></div>
+</div>
+<div class="card">
 <div class="label">Transações pendentes de validação</div>
 <div class="msg">Toda transação vinda do Open Finance cai aqui primeiro. Revise, edite e clique em Validar para que ela entre nos totais do Painel. Use "Interna" para transferências entre suas próprias contas ou reembolsos de divisão que não devem contar como receita/despesa.</div>
 <div class="tx-scroll" id="validation-table"></div>
@@ -249,7 +254,7 @@ const sb=createClient(SB_URL,SB_KEY);
 const $=id=>document.getElementById(id);
 const fmt=n=>'R$ '+Number(n).toLocaleString('pt-BR',{minimumFractionDigits:2});
 const hoje=()=>new Date().toISOString().slice(0,10);
-let TX=[],GOALS={},FC=[],INC=[],PEOPLE=[],SPLITS={},AUDIT=[],PENDING=[],INVESTMENTS=[],SHOW_INACTIVE_INV=false,form={type:'expense',category:'Outros',nature:'variavel'};
+let TX=[],GOALS={},FC=[],INC=[],PEOPLE=[],SPLITS={},AUDIT=[],PENDING=[],INVESTMENTS=[],BILLS=[],SHOW_INACTIVE_INV=false,form={type:'expense',category:'Outros',nature:'variavel'};
 function freshFilters(){return{desc:'',date:{from:'',to:''},value:{min:'',max:''},saldo:{min:'',max:''},type:new Set(),nature:new Set(),category:new Set(),payment_method:new Set()};}
 let FILTERS=freshFilters();
 let SORT={key:'date',dir:'desc'};
@@ -418,7 +423,7 @@ setTimeout(()=>ss.classList.add('hidden'),15000);
 }
 $('btn-sync').onclick=doSync;
 async function load(){
-const[t,g,f,ic,p,sp,c,au,inv]=await Promise.all([
+const[t,g,f,ic,p,sp,c,au,inv,bl]=await Promise.all([
 sb.from('transactions').select('*').order('date',{ascending:false}).limit(3000),
 sb.from('goals').select('*'),
 sb.from('forecasts').select('*'),
@@ -428,12 +433,14 @@ sb.from('transaction_splits').select('*,people(name)'),
 sb.from('categories').select('*').order('name'),
 sb.from('audit_log').select('*,transactions(desc,date,value,type,category,payment_method)').order('created_at',{ascending:false}).limit(300),
 sb.from('investments').select('*').order('balance',{ascending:false}),
+sb.from('credit_card_bills').select('*').order('due_date',{ascending:false}),
 ]);
 TX=t.data||[];GOALS={};(g.data||[]).forEach(x=>GOALS[x.category]=Number(x.amount));
 FC=f.data||[];INC=ic.data||[];PEOPLE=p.data||[];
 CATS=(c.data||[]).map(x=>x.name);if(!CATS.length)CATS=['Outros'];
 AUDIT=au.data||[];
 INVESTMENTS=inv.data||[];
+BILLS=bl.data||[];
 PENDING=TX.filter(t=>!t.deleted&&t.validated===false);
 const vc=$('val-count');if(PENDING.length&&MY_ROLE==='owner'){vc.textContent=PENDING.length;vc.classList.remove('hidden');}else{vc.classList.add('hidden');}
 SPLITS={};(sp.data||[]).forEach(s=>{if(!SPLITS[s.transaction_id])SPLITS[s.transaction_id]=[];SPLITS[s.transaction_id].push(s);});
@@ -464,6 +471,7 @@ $('tx-table').innerHTML=allSorted.length?buildTxTable(allSorted):'<div class="ms
 renderForecasts();
 renderHistorico();
 renderValidation();
+renderBillAudit();
 renderInvestments();
 }
 function renderInvestments(){
@@ -619,6 +627,47 @@ h+=`<tr>
 </tr>`;
 });
 return h+'</table>';
+}
+function billCardPrefix(accountName){
+// bills account_name (ex: "Cartão BTG BLACK") vs payment_method (ex: "Cartão BTG BLACK - 0538")
+return (accountName||'').trim().toLowerCase();
+}
+function renderBillAudit(){
+const el=$('bill-audit');if(!el)return;
+if(!BILLS.length){el.innerHTML='<div class="msg">Nenhuma fatura sincronizada ainda. Rode o Sync no Painel.</div>';return;}
+const hoje=new Date().toISOString().slice(0,10);
+const rows=[];
+BILLS.forEach(b=>{
+// fechamento: usa o oficial; se o banco não informa (ex: C6), estima dia 11 do mês do vencimento (ciclo conhecido)
+let closing=b.closing_date;
+if(!closing&&b.due_date){closing=b.due_date.slice(0,8)+'11';}
+if(!closing||closing>hoje)return; // só fatura fechada
+const d=new Date(closing+'T12:00:00');
+const start=new Date(d);start.setMonth(start.getMonth()-1);start.setDate(start.getDate()+1);
+const from=start.toISOString().slice(0,10);
+const prefix=billCardPrefix(b.account_name);
+const txs=TX.filter(t=>!t.deleted&&t.source==='cartao_sync'&&(t.payment_method||'').toLowerCase().startsWith(prefix)&&(t.date||'')>=from&&(t.date||'')<=closing);
+const gastos=txs.filter(t=>t.type==='expense').reduce((s,t)=>s+Number(t.value),0);
+const estornos=txs.filter(t=>t.type==='income'&&!/pagamento/i.test(t.desc||'')).reduce((s,t)=>s+Number(t.value),0);
+const nosso=gastos-estornos;
+const oficial=Number(b.total_amount||0)-Number(b.finance_charges||0);
+const diff=oficial-nosso;
+rows.push({card:b.account_name,closing,due:b.due_date,oficial:Number(b.total_amount||0),charges:Number(b.finance_charges||0),nosso,diff,estimado:!b.closing_date});
+});
+if(!rows.length){el.innerHTML='<div class="msg">Nenhuma fatura fechada pra conferir ainda.</div>';return;}
+rows.sort((a,b)=>(b.closing||'').localeCompare(a.closing||''));
+const recent=rows.slice(0,8);
+el.innerHTML='<table class="tx-table"><tr><th>Cartão</th><th>Fechamento</th><th>Fatura oficial</th><th>Registrado aqui</th><th>Diferença</th></tr>'+recent.map(r=>{
+const ok=Math.abs(r.diff)<1;
+const chargeNote=r.charges>0?`<br><span class="dim" style="font-size:10px">(inclui ${fmt(r.charges)} de encargos, fora da conta)</span>`:'';
+return `<tr>
+<td>${r.card}${r.estimado?' <span class="dim" style="font-size:10px">(fech. estimado)</span>':''}</td>
+<td class="mono dim">${(r.closing||'').split('-').reverse().join('/')}</td>
+<td class="mono">${fmt(r.oficial)}${chargeNote}</td>
+<td class="mono">${fmt(r.nosso)}</td>
+<td class="mono ${ok?'green':'red'}">${ok?'✓ OK':fmt(r.diff)+' faltando'}</td>
+</tr>`;
+}).join('')+'</table>';
 }
 function renderValidation(){
 const rows=PENDING.slice().sort((a,b)=>(b.date||'').localeCompare(a.date||''));
