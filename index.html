@@ -142,6 +142,13 @@ table.tx-table .split-badge { display:inline-block; background:var(--line); colo
 </div>
 <div id="tab-gestao" class="hidden">
 <div class="card">
+<div class="label">Conexões bancárias</div>
+<div class="msg">Conectado por aqui, o item fica acessível pro nosso app pra sempre — evita o problema de conexões "invisíveis" feitas direto no site do banco/Pluggy.</div>
+<div id="connections-list" style="margin-top:8px"></div>
+<button class="btn-sm" id="btn-add-connection" style="margin-top:10px">+ Adicionar conta bancária</button>
+<div class="msg" id="connection-msg"></div>
+</div>
+<div class="card">
 <div class="label">Usuários</div>
 <div class="msg">Convide, redefina senha ou remova acessos. Só o proprietário vê esta aba.</div>
 <div id="users-list" style="margin-top:8px"></div>
@@ -229,6 +236,7 @@ table.tx-table .split-badge { display:inline-block; background:var(--line); colo
 </div>
 </div>
 <div id="col-filter-popup" class="hidden" style="position:fixed;z-index:30;background:var(--sheet);border:1px solid var(--gold);padding:10px;min-width:170px;max-width:230px;box-shadow:0 4px 14px rgba(0,0,0,.5)"></div>
+<script src="https://cdn.pluggy.ai/pluggy-connect/latest/pluggy-connect.js"></script>
 <script type="module">
 import { createClient } from 'https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/+esm';
 import * as XLSX from 'https://esm.sh/xlsx@0.18.5';
@@ -870,6 +878,54 @@ const data=await res.json();
 if(!res.ok||data.error)throw new Error(data.error||('HTTP '+res.status));
 return data;
 }
+async function callPluggyConnect(action,extra){
+const{data:{session}}=await sb.auth.getSession();
+const res=await fetch(SB_URL+'/functions/v1/pluggy-connect',{method:'POST',headers:{'Content-Type':'application/json','Authorization':'Bearer '+session.access_token},body:JSON.stringify({action,...extra})});
+const data=await res.json();
+if(!res.ok||data.error)throw new Error(data.error||('HTTP '+res.status));
+return data;
+}
+function openPluggyWidget(accessToken,updateItemId,onDone){
+const widget=new PluggyConnect({
+connectToken:accessToken,
+includeSandbox:false,
+updateItem:updateItemId||undefined,
+onSuccess:async(itemData)=>{
+try{
+await callPluggyConnect('registerItem',{itemId:itemData.item.id,label:itemData.item.connector?.name,connectorName:itemData.item.connector?.name});
+$('connection-msg').innerHTML='<span class="green">Conta conectada ✓</span> Sincronizando...';
+await renderConnectionsList();
+await doSync();
+$('connection-msg').innerHTML='<span class="green">Conta conectada e sincronizada ✓</span>';
+}catch(e){$('connection-msg').innerHTML='<span class="red">Conectado, mas erro ao registrar: '+e.message+'</span>';}
+if(onDone)onDone();
+},
+onError:(error)=>{$('connection-msg').innerHTML='<span class="red">Erro na conexão: '+(error?.message||'desconhecido')+'</span>';},
+});
+widget.init();
+}
+$('btn-add-connection').onclick=async()=>{
+$('connection-msg').textContent='Abrindo conexão...';
+try{
+const{accessToken}=await callPluggyConnect('getToken',{});
+openPluggyWidget(accessToken,null);
+}catch(e){$('connection-msg').innerHTML='<span class="red">Erro: '+e.message+'</span>';}
+};
+async function renderConnectionsList(){
+const el=$('connections-list');
+el.innerHTML='<div class="msg">Carregando...</div>';
+try{
+const data=await callPluggyConnect('listItems',{});
+el.innerHTML=data.items.length?data.items.map(i=>`<div class="row" style="margin-top:8px;align-items:center">
+<span style="flex:1;font-size:13px">${i.label||i.connector_name||i.item_id.slice(0,8)}</span>
+<button class="btn-sm btn-reconnect" data-iid="${i.item_id}">Reconectar</button>
+</div>`).join(''):'<div class="msg">Nenhuma conexão registrada.</div>';
+el.querySelectorAll('.btn-reconnect').forEach(b=>b.onclick=async()=>{
+$('connection-msg').textContent='Abrindo reconexão...';
+try{const{accessToken}=await callPluggyConnect('getToken',{itemId:b.dataset.iid});openPluggyWidget(accessToken,b.dataset.iid);}catch(e){$('connection-msg').innerHTML='<span class="red">Erro: '+e.message+'</span>';}
+});
+}catch(e){el.innerHTML='<div class="msg">Erro ao carregar: '+e.message+'</div>';}
+}
 async function renderUsersList(){
 const el=$('users-list');
 el.innerHTML='<div class="msg">Carregando...</div>';
@@ -900,7 +956,7 @@ renderUsersList();
 }catch(e){$('invite-msg').innerHTML='<span class="red">Erro: '+e.message+'</span>';}
 $('btn-invite').disabled=false;
 };
-document.querySelector('.tabbar').onclick=e=>{const tab=e.target.closest('.tab')?.dataset.tab;if(!tab)return;['painel','previsoes','investimentos','validacao','gestao','perguntar'].forEach(t=>$('tab-'+t).classList.toggle('hidden',t!==tab));[...document.querySelectorAll('.tab')].forEach(b=>b.classList.toggle('on',b.dataset.tab===tab));if(tab==='gestao'&&MY_ROLE==='owner')renderUsersList();};
+document.querySelector('.tabbar').onclick=e=>{const tab=e.target.closest('.tab')?.dataset.tab;if(!tab)return;['painel','previsoes','investimentos','validacao','gestao','perguntar'].forEach(t=>$('tab-'+t).classList.toggle('hidden',t!==tab));[...document.querySelectorAll('.tab')].forEach(b=>b.classList.toggle('on',b.dataset.tab===tab));if(tab==='gestao'&&MY_ROLE==='owner'){renderUsersList();renderConnectionsList();}};
 if('serviceWorker' in navigator)navigator.serviceWorker.register('sw.js').catch(()=>{});
 boot();
 </script>
