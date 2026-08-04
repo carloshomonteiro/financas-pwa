@@ -426,7 +426,7 @@ sb.from('income_forecasts').select('*'),
 sb.from('people').select('*'),
 sb.from('transaction_splits').select('*,people(name)'),
 sb.from('categories').select('*').order('name'),
-sb.from('audit_log').select('*,transactions(desc)').order('created_at',{ascending:false}).limit(300),
+sb.from('audit_log').select('*,transactions(desc,date,value,type,category,payment_method)').order('created_at',{ascending:false}).limit(300),
 sb.from('investments').select('*').order('balance',{ascending:false}),
 ]);
 TX=t.data||[];GOALS={};(g.data||[]).forEach(x=>GOALS[x.category]=Number(x.amount));
@@ -521,12 +521,21 @@ $('fc-view').innerHTML=FC.length?FC.map(f=>`<div class="row" style="font-size:13
 }
 function renderHistorico(){
 $('historico-view').innerHTML=AUDIT.length?AUDIT.map(a=>{
-const desc=a.transactions?a.transactions.desc:'(transação removida)';
+const t=a.transactions;
+const desc=t?t.desc:'(transação removida)';
+const txDate=t&&t.date?t.date.split('-').reverse().join('/'):'—';
+const txValue=t?fmt(t.value):'';
+const txMeta=t?`${t.type==='income'?'Receita':'Despesa'} · ${t.category||''}${t.payment_method?' · '+t.payment_method:''}`:'';
 const label=a.action==='delete'?'Exclusão':('Edição de '+(a.field||''));
 const detail=a.action==='delete'?'':`${a.old_value||''} → ${a.new_value||''}`;
 const when=a.created_at?new Date(a.created_at).toLocaleString('pt-BR'):'';
 return `<div class="hist-row row">
-<div style="flex:1"><b style="font-size:12px">${desc}</b><br><span class="dim" style="font-size:11px">${label}${detail?': '+detail:''}</span><br><span class="dim" style="font-size:10px">${when}</span></div>
+<div style="flex:1">
+<b style="font-size:12px">${desc}</b> <span class="mono dim" style="font-size:11px">${txValue}</span><br>
+<span class="dim" style="font-size:11px">Data da transação: ${txDate}${txMeta?' · '+txMeta:''}</span><br>
+<span class="dim" style="font-size:11px">${label}${detail?': '+detail:''}</span><br>
+<span class="dim" style="font-size:10px">Ação em: ${when}</span>
+</div>
 <button class="btn-sm" onclick="restoreAudit('${a.id}')">Reverter</button>
 </div>`;
 }).join(''):'<div class="msg">Nenhuma alteração registrada ainda.</div>';
