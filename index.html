@@ -708,7 +708,7 @@ const d=new Date(closing+'T12:00:00');
 const start=new Date(d);start.setMonth(start.getMonth()-1);start.setDate(start.getDate()+1);
 const from=start.toISOString().slice(0,10);
 const prefix=billCardPrefix(b.account_name);
-const txs=TX.filter(t=>!t.deleted&&t.source==='cartao_sync'&&(t.payment_method||'').toLowerCase().startsWith(prefix)&&(t.date||'')>=from&&(t.date||'')<=closing);
+const txs=TX.filter(t=>!t.deleted&&(t.payment_method||'').toLowerCase().startsWith(prefix)&&(t.date||'')>=from&&(t.date||'')<=closing);
 const gastos=txs.filter(t=>t.type==='expense').reduce((s,t)=>s+Number(t.value),0);
 const estornos=txs.filter(t=>t.type==='income'&&!/pagamento/i.test(t.desc||'')).reduce((s,t)=>s+Number(t.value),0);
 const nosso=gastos-estornos;
