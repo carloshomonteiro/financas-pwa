@@ -137,7 +137,7 @@ table.tx-table .split-badge { display:inline-block; background:var(--line); colo
 <div class="card">
 <div class="label">Conferência de faturas</div>
 <div class="msg">Compara o total oficial de cada fatura fechada (informado pelo banco) com a soma das transações registradas aqui. Diferenças indicam transações que o Open Finance não entregou — confira no app do banco e lance manualmente o que faltar.</div>
-<div id="bill-audit"></div>
+<div class="tx-scroll" id="bill-audit"></div>
 </div>
 <div class="card">
 <div class="label">Transações pendentes de validação</div>
@@ -655,18 +655,21 @@ const diff=oficial-nosso;
 rows.push({card:(b.account_name||'').trim(),closing,due:b.due_date,oficial:Number(b.total_amount||0),charges:Number(b.finance_charges||0),nosso,diff,estimado:!b.closing_date});
 });
 if(!rows.length){el.innerHTML='<div class="msg">Nenhuma fatura fechada pra conferir ainda.</div>';return;}
-// apenas a fatura fechada mais recente de cada cartão
+// fatura fechada mais recente de cada cartão
 const latestByCard={};
 rows.forEach(r=>{if(!latestByCard[r.card]||r.closing>latestByCard[r.card].closing)latestByCard[r.card]=r;});
-const recent=Object.values(latestByCard).sort((a,b)=>(b.closing||'').localeCompare(a.closing||''));
-// aviso quando um ciclo já fechou mas o banco ainda não publicou a fatura na API
+// último ciclo esperado (fecha dia 11)
 const hj=new Date();
 const lastExpectedClosing=(hj.getDate()>=11)?`${hj.getFullYear()}-${String(hj.getMonth()+1).padStart(2,'0')}-11`:(()=>{const p=new Date(hj);p.setMonth(p.getMonth()-1);return `${p.getFullYear()}-${String(p.getMonth()+1).padStart(2,'0')}-11`;})();
-const awaiting=recent.filter(r=>r.closing<lastExpectedClosing).map(r=>r.card);
-const awaitingNote=awaiting.length?`<div class="msg" style="margin-top:6px">⏳ Fatura mais recente (fechamento ${lastExpectedClosing.split('-').reverse().join('/')}) ainda não publicada pelo banco via Open Finance: ${awaiting.join(', ')}. Costuma levar alguns dias — aparecerá aqui automaticamente.</div>`:'';
+// só mostra a comparação se a fatura for do último ciclo; anteriores ficam só no aviso
+const all=Object.values(latestByCard);
+const recent=all.filter(r=>r.closing>=lastExpectedClosing).sort((a,b)=>(b.closing||'').localeCompare(a.closing||''));
+const awaiting=all.filter(r=>r.closing<lastExpectedClosing).map(r=>r.card);
+const awaitingNote=awaiting.length?`<div class="msg" style="margin-top:6px">⏳ Fatura do último ciclo (fechamento ${lastExpectedClosing.split('-').reverse().join('/')}) ainda não publicada pelo banco via Open Finance: ${awaiting.join(', ')}. Costuma levar alguns dias — aparecerá aqui automaticamente.</div>`:'';
+if(!recent.length){el.innerHTML=awaitingNote||'<div class="msg">Nenhuma fatura do último ciclo pra conferir ainda.</div>';return;}
 el.innerHTML='<table class="tx-table"><tr><th>Cartão</th><th>Fechamento</th><th>Fatura oficial</th><th>Registrado aqui</th><th>Diferença</th></tr>'+recent.map(r=>{
 const ok=Math.abs(r.diff)<1;
-const chargeNote=r.charges>0?`<br><span class="dim" style="font-size:10px">(inclui ${fmt(r.charges)} de encargos, fora da conta)</span>`:'';
+const chargeNote=r.charges>0?`<br><span class="dim" style="font-size:10px">encargos: ${fmt(r.charges)}</span>`:'';
 return `<tr>
 <td>${r.card}${r.estimado?' <span class="dim" style="font-size:10px">(fech. estimado)</span>':''}</td>
 <td class="mono dim">${(r.closing||'').split('-').reverse().join('/')}</td>
