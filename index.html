@@ -705,10 +705,15 @@ let closing=b.closing_date;
 if(!closing&&b.due_date){closing=b.due_date.slice(0,8)+'11';}
 if(!closing||closing>hoje)return; // só fatura fechada
 const d=new Date(closing+'T12:00:00');
-const start=new Date(d);start.setMonth(start.getMonth()-1);start.setDate(start.getDate()+1);
-const from=start.toISOString().slice(0,10);
+// corte real do banco: compra feita no próprio dia do fechamento (11) já cai na fatura seguinte
+// então a fatura que fecha dia 11/M cobre compras de 11/(M-1) até 10/M
+const start=new Date(d);start.setMonth(start.getMonth()-1);
+const endD=new Date(d);endD.setDate(endD.getDate()-1);
+const iso2=x=>new Date(x.getTime()-x.getTimezoneOffset()*60000).toISOString().slice(0,10);
+const from=iso2(start);
+const to=iso2(endD);
 const prefix=billCardPrefix(b.account_name);
-const txs=TX.filter(t=>!t.deleted&&(t.payment_method||'').toLowerCase().startsWith(prefix)&&(t.date||'')>=from&&(t.date||'')<=closing);
+const txs=TX.filter(t=>!t.deleted&&(t.payment_method||'').toLowerCase().startsWith(prefix)&&(t.date||'')>=from&&(t.date||'')<=to);
 const gastos=txs.filter(t=>t.type==='expense').reduce((s,t)=>s+Number(t.value),0);
 const estornos=txs.filter(t=>t.type==='income'&&!/pagamento/i.test(t.desc||'')).reduce((s,t)=>s+Number(t.value),0);
 const nosso=gastos-estornos;
