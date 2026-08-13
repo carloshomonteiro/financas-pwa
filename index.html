@@ -652,11 +652,18 @@ const estornos=txs.filter(t=>t.type==='income'&&!/pagamento/i.test(t.desc||'')).
 const nosso=gastos-estornos;
 const oficial=Number(b.total_amount||0)-Number(b.finance_charges||0);
 const diff=oficial-nosso;
-rows.push({card:b.account_name,closing,due:b.due_date,oficial:Number(b.total_amount||0),charges:Number(b.finance_charges||0),nosso,diff,estimado:!b.closing_date});
+rows.push({card:(b.account_name||'').trim(),closing,due:b.due_date,oficial:Number(b.total_amount||0),charges:Number(b.finance_charges||0),nosso,diff,estimado:!b.closing_date});
 });
 if(!rows.length){el.innerHTML='<div class="msg">Nenhuma fatura fechada pra conferir ainda.</div>';return;}
-rows.sort((a,b)=>(b.closing||'').localeCompare(a.closing||''));
-const recent=rows.slice(0,8);
+// apenas a fatura fechada mais recente de cada cartão
+const latestByCard={};
+rows.forEach(r=>{if(!latestByCard[r.card]||r.closing>latestByCard[r.card].closing)latestByCard[r.card]=r;});
+const recent=Object.values(latestByCard).sort((a,b)=>(b.closing||'').localeCompare(a.closing||''));
+// aviso quando um ciclo já fechou mas o banco ainda não publicou a fatura na API
+const hj=new Date();
+const lastExpectedClosing=(hj.getDate()>=11)?`${hj.getFullYear()}-${String(hj.getMonth()+1).padStart(2,'0')}-11`:(()=>{const p=new Date(hj);p.setMonth(p.getMonth()-1);return `${p.getFullYear()}-${String(p.getMonth()+1).padStart(2,'0')}-11`;})();
+const awaiting=recent.filter(r=>r.closing<lastExpectedClosing).map(r=>r.card);
+const awaitingNote=awaiting.length?`<div class="msg" style="margin-top:6px">⏳ Fatura mais recente (fechamento ${lastExpectedClosing.split('-').reverse().join('/')}) ainda não publicada pelo banco via Open Finance: ${awaiting.join(', ')}. Costuma levar alguns dias — aparecerá aqui automaticamente.</div>`:'';
 el.innerHTML='<table class="tx-table"><tr><th>Cartão</th><th>Fechamento</th><th>Fatura oficial</th><th>Registrado aqui</th><th>Diferença</th></tr>'+recent.map(r=>{
 const ok=Math.abs(r.diff)<1;
 const chargeNote=r.charges>0?`<br><span class="dim" style="font-size:10px">(inclui ${fmt(r.charges)} de encargos, fora da conta)</span>`:'';
@@ -667,7 +674,7 @@ return `<tr>
 <td class="mono">${fmt(r.nosso)}</td>
 <td class="mono ${ok?'green':'red'}">${ok?'✓ OK':fmt(r.diff)+' faltando'}</td>
 </tr>`;
-}).join('')+'</table>';
+}).join('')+'</table>'+awaitingNote;
 }
 function renderValidation(){
 const rows=PENDING.slice().sort((a,b)=>(b.date||'').localeCompare(a.date||''));
