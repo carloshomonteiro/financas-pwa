@@ -127,7 +127,16 @@ table.tx-table .split-badge { display:inline-block; background:var(--line); colo
 <div id="tab-investimentos" class="hidden">
 <div class="grid2">
 <div class="card"><div class="label">Patrimônio (ativos)</div><div class="big mono gold" id="inv-total-patrimonio">—</div></div>
-<div class="card"><div class="label">Rendimento</div><div class="med mono" id="inv-total-rendimento">—</div><div class="msg" id="inv-rendimento-pct" style="margin-top:2px"></div></div>
+<div class="card"><div class="label">Rendimento</div><div class="med mono" id="inv-total-rendimento">—</div><div class="msg" id="inv-rendimento-pct" style="margin-top:2px"></div><div class="msg" id="inv-cdi-carteira" style="margin-top:2px"></div></div>
+</div>
+<div class="card">
+<div class="label">Evolução do patrimônio</div>
+<div id="inv-evolucao"></div>
+</div>
+<div class="card">
+<div class="label">Análise de ativos</div>
+<div class="msg" style="margin-top:0">Rentabilidade acumulada de cada posição e comparação com o CDI oficial (Banco Central) desde a aplicação.</div>
+<div id="inv-analise"></div>
 </div>
 <div class="card"><div class="label">Por tipo de investimento</div><div id="inv-by-type"></div></div>
 <div class="card"><div class="label">Por instituição</div><div id="inv-by-issuer"></div></div>
@@ -264,7 +273,7 @@ const sb=createClient(SB_URL,SB_KEY);
 const $=id=>document.getElementById(id);
 const fmt=n=>'R$ '+Number(n).toLocaleString('pt-BR',{minimumFractionDigits:2});
 const hoje=()=>new Date().toISOString().slice(0,10);
-let TX=[],GOALS={},FC=[],INC=[],PEOPLE=[],SPLITS={},AUDIT=[],PENDING=[],INVESTMENTS=[],BILLS=[],SHOW_INACTIVE_INV=false,form={type:'expense',category:'Outros',nature:'variavel'};
+let TX=[],GOALS={},FC=[],INC=[],PEOPLE=[],SPLITS={},AUDIT=[],PENDING=[],INVESTMENTS=[],BILLS=[],SNAPSHOTS=[],CDI_PROMISE=null,SHOW_INACTIVE_INV=false,form={type:'expense',category:'Outros',nature:'variavel'};
 function freshFilters(){return{desc:'',date:{from:'',to:''},value:{min:'',max:''},saldo:{min:'',max:''},type:new Set(),nature:new Set(),category:new Set(),payment_method:new Set()};}
 let FILTERS=freshFilters();
 let SORT={key:'date',dir:'desc'};
@@ -433,7 +442,7 @@ setTimeout(()=>ss.classList.add('hidden'),15000);
 }
 $('btn-sync').onclick=doSync;
 async function load(){
-const[t,g,f,ic,p,sp,c,au,inv,bl]=await Promise.all([
+const[t,g,f,ic,p,sp,c,au,inv,bl,snp]=await Promise.all([
 sb.from('transactions').select('*').order('date',{ascending:false}).limit(3000),
 sb.from('goals').select('*'),
 sb.from('forecasts').select('*'),
@@ -444,6 +453,7 @@ sb.from('categories').select('*').order('name'),
 sb.from('audit_log').select('*,transactions(desc,date,value,type,category,payment_method)').order('created_at',{ascending:false}).limit(300),
 sb.from('investments').select('*').order('balance',{ascending:false}),
 sb.from('credit_card_bills').select('*').order('due_date',{ascending:false}),
+sb.from('investment_snapshots').select('*').order('snap_date'),
 ]);
 TX=t.data||[];GOALS={};(g.data||[]).forEach(x=>GOALS[x.category]=Number(x.amount));
 FC=f.data||[];INC=ic.data||[];PEOPLE=p.data||[];
@@ -451,6 +461,7 @@ CATS=(c.data||[]).map(x=>x.name);if(!CATS.length)CATS=['Outros'];
 AUDIT=au.data||[];
 INVESTMENTS=inv.data||[];
 BILLS=bl.data||[];
+SNAPSHOTS=snp.data||[];
 PENDING=TX.filter(t=>!t.deleted&&t.validated===false);
 const vc=$('val-count');if(PENDING.length&&MY_ROLE==='owner'){vc.textContent=PENDING.length;vc.classList.remove('hidden');}else{vc.classList.add('hidden');}
 SPLITS={};(sp.data||[]).forEach(s=>{if(!SPLITS[s.transaction_id])SPLITS[s.transaction_id]=[];SPLITS[s.transaction_id].push(s);});
@@ -484,6 +495,97 @@ renderValidation();
 renderBillAudit();
 populateFaturaCardSelect();
 renderInvestments();
+}
+function renderInvEvolucao(){
+const el=$('inv-evolucao');if(!el)return;
+const byDate={};
+SNAPSHOTS.forEach(s=>{byDate[s.snap_date]=(byDate[s.snap_date]||0)+Number(s.balance||0);});
+const pts=Object.entries(byDate).sort((a,b)=>a[0].localeCompare(b[0]));
+if(pts.length<2){
+el.innerHTML='<div class="msg">O histórico diário do patrimônio começou a ser registrado agora ('+(pts.length?pts[0][0].split('-').reverse().join('/'):'hoje')+'). O gráfico se desenha sozinho a partir dos próximos dias — cada sincronização grava um ponto novo.</div>'+(pts.length?`<div class="row" style="font-size:13px;margin-top:8px"><span>Hoje</span><span class="mono gold">${fmt(pts[0][1])}</span></div>`:'');
+return;
+}
+const vals=pts.map(p=>p[1]);
+const min=Math.min(...vals),max=Math.max(...vals);
+const pad=(max-min)*0.1||max*0.05||1;
+const lo=min-pad,hi=max+pad;
+const W=320,H=110;
+const xy=pts.map((p,i)=>[i/(pts.length-1)*W,H-((p[1]-lo)/(hi-lo))*H]);
+const line=xy.map(p=>p[0].toFixed(1)+','+p[1].toFixed(1)).join(' ');
+const area=`0,${H} `+line+` ${W},${H}`;
+el.innerHTML=`<svg viewBox="0 0 ${W} ${H+18}" style="width:100%;margin-top:6px">
+<polygon points="${area}" fill="rgba(212,175,55,.15)"/>
+<polyline points="${line}" fill="none" stroke="var(--gold)" stroke-width="2"/>
+<text x="0" y="${H+14}" fill="var(--dim,#889)" font-size="9">${pts[0][0].split('-').reverse().join('/')}</text>
+<text x="${W}" y="${H+14}" fill="var(--dim,#889)" font-size="9" text-anchor="end">${pts[pts.length-1][0].split('-').reverse().join('/')}</text>
+</svg>
+<div class="row" style="font-size:12px"><span class="dim">${pts.length} dias registrados</span><span class="mono ${vals[vals.length-1]>=vals[0]?'green':'red'}">${fmt(vals[vals.length-1]-vals[0])} no período</span></div>`;
+}
+async function loadCDI(fromDate){
+if(CDI_PROMISE)return CDI_PROMISE;
+CDI_PROMISE=(async()=>{
+const [y,m,d]=fromDate.split('-');
+const hoje=new Date();
+const df=`${d}/${m}/${y}`;
+const dt=`${String(hoje.getDate()).padStart(2,'0')}/${String(hoje.getMonth()+1).padStart(2,'0')}/${hoje.getFullYear()}`;
+const res=await fetch(`https://api.bcb.gov.br/dados/serie/bcdata.sgs.12/dados?formato=json&dataInicial=${df}&dataFinal=${dt}`);
+if(!res.ok)throw new Error('BCB '+res.status);
+const serie=await res.json();
+// fator acumulado do CDI até cada data
+const cum=[];let f=1;
+serie.forEach(pt=>{const[dd,mm,yy]=pt.data.split('/');f*=(1+Number(pt.valor)/100);cum.push({date:`${yy}-${mm}-${dd}`,factor:f});});
+return cum;
+})();
+return CDI_PROMISE;
+}
+function cdiFactorBetween(cum,from,to){
+let fFrom=1,fTo=1;
+for(const p of cum){if(p.date<=from)fFrom=p.factor;if(p.date<=to)fTo=p.factor;}
+return fTo/fFrom;
+}
+async function renderInvAnalise(){
+const el=$('inv-analise');if(!el)return;
+const rows=INVESTMENTS.filter(i=>Number(i.balance)>0);
+if(!rows.length){el.innerHTML='<div class="msg">Nenhum investimento ativo.</div>';return;}
+const total=rows.reduce((s,i)=>s+Number(i.balance||0),0);
+const enriched=rows.map(i=>{
+const invested=Number(i.amount_original||i.balance||0);
+const rend=Number(i.balance||0)-invested;
+const rendPct=invested>0?rend/invested*100:0;
+return{...i,invested,rend,rendPct,pctCarteira:total>0?Number(i.balance)/total*100:0};
+}).sort((a,b)=>b.rendPct-a.rendPct);
+el.innerHTML=enriched.map((i,idx)=>{
+const badge=enriched.length>1?(idx===0?' <span style="font-size:10px">🏆</span>':(idx===enriched.length-1?' <span class="dim" style="font-size:10px">▼ menor</span>':'')):'';
+const dias=i.purchase_date?Math.round((Date.now()-new Date(i.purchase_date+'T12:00:00').getTime())/86400000):null;
+return `<div style="margin-top:12px;padding-top:10px;border-top:1px solid var(--line)">
+<div class="row" style="font-size:13px"><b>${i.name||'—'}</b>${badge}</div>
+<div class="row" style="font-size:12px;margin-top:4px"><span class="dim">% na carteira</span><span class="mono">${i.pctCarteira.toFixed(1)}%</span></div>
+<div class="bar-track"><div class="bar-fill" style="width:${i.pctCarteira.toFixed(1)}%"></div></div>
+<div class="row" style="font-size:12px;margin-top:4px"><span class="dim">Rent. acumulada${dias!=null?' ('+dias+' dias)':''}</span><span class="mono ${i.rendPct>=0?'green':'red'}">${i.rendPct>=0?'+':''}${i.rendPct.toFixed(2)}% (${fmt(i.rend)})</span></div>
+<div class="row" style="font-size:12px;margin-top:2px"><span class="dim">% do CDI no período</span><span class="mono dim" id="cdi-${i.id}">calculando…</span></div>
+</div>`;
+}).join('');
+// comparação com CDI oficial (BCB)
+try{
+const earliest=enriched.filter(i=>i.purchase_date).map(i=>i.purchase_date).sort()[0];
+if(!earliest)return;
+const hoje=new Date().toISOString().slice(0,10);
+const cum=await loadCDI(earliest);
+let expTotal=0,rendTotal=0;
+enriched.forEach(i=>{
+const cell=document.getElementById('cdi-'+i.id);
+if(!i.purchase_date||i.invested<=0){if(cell)cell.textContent='—';return;}
+const fator=cdiFactorBetween(cum,i.purchase_date,hoje);
+const esperado=i.invested*(fator-1);
+expTotal+=esperado;rendTotal+=i.rend;
+const pct=esperado>0?i.rend/esperado*100:0;
+if(cell){cell.textContent=pct.toFixed(0)+'% do CDI';cell.className='mono '+(pct>=95?'green':(pct>=70?'':'red'));}
+});
+const cart=$('inv-cdi-carteira');
+if(cart&&expTotal>0)cart.textContent='Carteira: '+(rendTotal/expTotal*100).toFixed(0)+'% do CDI no período';
+}catch(e){
+enriched.forEach(i=>{const cell=document.getElementById('cdi-'+i.id);if(cell)cell.textContent='CDI indisponível';});
+}
 }
 function renderInvestments(){
 const rows=SHOW_INACTIVE_INV?INVESTMENTS:INVESTMENTS.filter(i=>Number(i.balance)>0);
@@ -529,6 +631,8 @@ h+=`<tr>
 });
 h+='</table>';
 $('inv-table').innerHTML=sorted.length?h:'<div class="msg">Nenhum investimento encontrado.</div>';
+renderInvEvolucao();
+renderInvAnalise();
 }
 function renderForecasts(){
 const incTotal=INC.reduce((s,i)=>s+Number(i.amount),0);
