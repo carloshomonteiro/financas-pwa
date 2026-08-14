@@ -189,6 +189,14 @@ table.tx-table .split-badge { display:inline-block; background:var(--line); colo
 <div id="historico-view"></div>
 </div>
 </div>
+<div id="modal-linksplit" class="hidden" style="position:fixed;inset:0;background:rgba(0,0,0,.7);z-index:20;display:flex;align-items:center;justify-content:center;padding:14px">
+<div class="card" style="width:100%;max-width:460px;max-height:88vh;overflow-y:auto">
+<div class="row"><div class="label">Vincular a uma divisão</div><button class="btn-sm" id="btn-close-linksplit">✕ Fechar</button></div>
+<div class="msg">Marque de qual divisão este recebimento é o pagamento. Ao vincular, a transação vira "Interna" automaticamente (não conta como receita — a despesa original já foi abatida pela divisão). Se a transação original ainda não chegou, valide como Interna e vincule depois por aqui mesmo.</div>
+<div id="linksplit-atual"></div>
+<div id="linksplit-list" style="margin-top:8px"></div>
+</div>
+</div>
 <div id="modal-lancar" class="hidden" style="position:fixed;inset:0;background:rgba(0,0,0,.7);z-index:20;display:flex;align-items:center;justify-content:center;padding:14px">
 <div class="card" style="width:100%;max-width:460px;max-height:88vh;overflow-y:auto">
 <div class="row"><div class="label">Lançar transação manual</div><button class="btn-sm" id="btn-close-lancar">✕ Fechar</button></div>
@@ -500,27 +508,65 @@ renderInvestments();
 function renderInvEvolucao(){
 const el=$('inv-evolucao');if(!el)return;
 const byDate={};
-SNAPSHOTS.forEach(s=>{byDate[s.snap_date]=(byDate[s.snap_date]||0)+Number(s.balance||0);});
-const pts=Object.entries(byDate).sort((a,b)=>a[0].localeCompare(b[0]));
+SNAPSHOTS.forEach(s=>{
+if(Number(s.balance||0)<=0)return; // posições resgatadas não entram na curva
+if(!byDate[s.snap_date])byDate[s.snap_date]={saldo:0,investido:0};
+byDate[s.snap_date].saldo+=Number(s.balance||0);
+byDate[s.snap_date].investido+=Number(s.invested||0);
+});
+const pts=Object.entries(byDate).map(([date,v])=>({date,saldo:v.saldo,investido:v.investido})).sort((a,b)=>a.date.localeCompare(b.date));
 if(pts.length<2){
-el.innerHTML='<div class="msg">O histórico diário do patrimônio começou a ser registrado agora ('+(pts.length?pts[0][0].split('-').reverse().join('/'):'hoje')+'). O gráfico se desenha sozinho a partir dos próximos dias — cada sincronização grava um ponto novo.</div>'+(pts.length?`<div class="row" style="font-size:13px;margin-top:8px"><span>Hoje</span><span class="mono gold">${fmt(pts[0][1])}</span></div>`:'');
+el.innerHTML='<div class="msg">O histórico do patrimônio começou a ser registrado agora. O gráfico se desenha sozinho a cada dia.</div>';
 return;
 }
-const vals=pts.map(p=>p[1]);
+const vals=pts.map(p=>p.saldo);
 const min=Math.min(...vals),max=Math.max(...vals);
-const pad=(max-min)*0.1||max*0.05||1;
-const lo=min-pad,hi=max+pad;
+const pad=(max-min)*0.12||max*0.05||1;
+const lo=Math.max(0,min-pad),hi=max+pad;
 const W=320,H=110;
-const xy=pts.map((p,i)=>[i/(pts.length-1)*W,H-((p[1]-lo)/(hi-lo))*H]);
+const xy=pts.map((p,i)=>[i/(pts.length-1)*W,H-((p.saldo-lo)/(hi-lo))*H]);
 const line=xy.map(p=>p[0].toFixed(1)+','+p[1].toFixed(1)).join(' ');
 const area=`0,${H} `+line+` ${W},${H}`;
-el.innerHTML=`<svg viewBox="0 0 ${W} ${H+18}" style="width:100%;margin-top:6px">
+const dots=xy.map((p,i)=>`<circle cx="${p[0].toFixed(1)}" cy="${p[1].toFixed(1)}" r="3" fill="var(--gold)"/>`).join('');
+const aportes=pts[pts.length-1].investido-pts[0].investido;
+const variacao=pts[pts.length-1].saldo-pts[0].saldo;
+const rendimento=variacao-aportes;
+el.innerHTML=`<div id="evo-wrap" style="position:relative;margin-top:6px">
+<svg id="evo-svg" viewBox="0 0 ${W} ${H+18}" style="width:100%;display:block;touch-action:pan-y">
 <polygon points="${area}" fill="rgba(212,175,55,.15)"/>
 <polyline points="${line}" fill="none" stroke="var(--gold)" stroke-width="2"/>
-<text x="0" y="${H+14}" fill="var(--dim,#889)" font-size="9">${pts[0][0].split('-').reverse().join('/')}</text>
-<text x="${W}" y="${H+14}" fill="var(--dim,#889)" font-size="9" text-anchor="end">${pts[pts.length-1][0].split('-').reverse().join('/')}</text>
+<line id="evo-guide" x1="0" y1="0" x2="0" y2="${H}" stroke="var(--dim,#889)" stroke-width="1" stroke-dasharray="3,3" style="display:none"/>
+${dots}
+<text x="0" y="${H+14}" fill="var(--dim,#889)" font-size="9">${pts[0].date.split('-').reverse().join('/')}</text>
+<text x="${W}" y="${H+14}" fill="var(--dim,#889)" font-size="9" text-anchor="end">${pts[pts.length-1].date.split('-').reverse().join('/')}</text>
 </svg>
-<div class="row" style="font-size:12px"><span class="dim">${pts.length} dias registrados</span><span class="mono ${vals[vals.length-1]>=vals[0]?'green':'red'}">${fmt(vals[vals.length-1]-vals[0])} no período</span></div>`;
+<div id="evo-tip" class="card" style="display:none;position:absolute;top:0;left:0;padding:8px 10px;font-size:11px;pointer-events:none;z-index:5;min-width:140px"></div>
+</div>
+<div class="msg" style="margin-top:4px">Toque no gráfico pra ver os valores de cada ponto.</div>
+<div class="row" style="font-size:12px;margin-top:6px"><span class="dim">Aportes no período</span><span class="mono">${fmt(aportes)}</span></div>
+<div class="row" style="font-size:12px;margin-top:2px"><span class="dim">Rendimento no período</span><span class="mono ${rendimento>=0?'green':'red'}">${rendimento>=0?'+':''}${fmt(rendimento)}</span></div>`;
+const wrap=document.getElementById('evo-wrap');
+const svg=document.getElementById('evo-svg');
+const tip=document.getElementById('evo-tip');
+const guide=document.getElementById('evo-guide');
+function showPoint(clientX){
+const r=svg.getBoundingClientRect();
+const frac=Math.min(1,Math.max(0,(clientX-r.left)/r.width));
+const idx=Math.round(frac*(pts.length-1));
+const p=pts[idx];
+guide.setAttribute('x1',xy[idx][0]);guide.setAttribute('x2',xy[idx][0]);guide.style.display='';
+const rendAcum=p.saldo-p.investido;
+tip.innerHTML=`<b>${p.date.split('-').reverse().join('/')}</b><br>Saldo: <span class="mono gold">${fmt(p.saldo)}</span><br>Investido: <span class="mono dim">${fmt(p.investido)}</span><br>Rendimento: <span class="mono ${rendAcum>=0?'green':'red'}">${fmt(rendAcum)}</span>`;
+tip.style.display='block';
+const tipW=tip.offsetWidth;
+const px=xy[idx][0]/W*r.width;
+tip.style.left=Math.min(r.width-tipW-4,Math.max(4,px-tipW/2))+'px';
+}
+function hidePoint(){tip.style.display='none';guide.style.display='none';}
+svg.addEventListener('pointerdown',e=>{showPoint(e.clientX);});
+svg.addEventListener('pointermove',e=>{if(e.buttons>0||e.pointerType==='mouse')showPoint(e.clientX);});
+svg.addEventListener('touchmove',e=>{if(e.touches.length)showPoint(e.touches[0].clientX);},{passive:true});
+document.addEventListener('pointerdown',e=>{if(!wrap.contains(e.target))hidePoint();});
 }
 async function loadCDI(fromDate){
 if(CDI_PROMISE)return CDI_PROMISE;
@@ -694,7 +740,7 @@ let h='<table class="tx-table"><tr>'+thCell('date','Data')+thCell('desc','Descri
 let sumValor=0,sumSaldo=0,sumSplitDiscount=0;
 rows.forEach(t=>{
 const sp=SPLITS[t.id]||[];
-const splitBadges=sp.map(s=>`<span class="split-badge">${s.people?.name||'?'}: ${fmt(s.amount)}</span>`).join(' ');
+const splitBadges=sp.map(s=>`<span class="split-badge">${s.people?.name||'?'}: ${fmt(s.amount)}${s.paid_tx_id?' ✓':''}</span>`).join(' ');
 const descVal=(t.desc||'').replace(/"/g,'&quot;');
 const sign=t.type==='income'?1:-1;
 const sal=saldoOf(t);
@@ -710,7 +756,7 @@ h+=`<tr>
 <td><select data-id="${t.id}" data-f="nature" class="row-edit"><option value="fixa" ${t.nature==='fixa'?'selected':''}>Fixa</option><option value="variavel" ${t.nature!=='fixa'?'selected':''}>Var.</option></select></td>
 <td><select data-id="${t.id}" data-f="category" class="row-edit">${CATS.map(c=>`<option value="${c}" ${c===t.category?'selected':''}>${c}</option>`).join('')}<option value="__new__">+ Nova...</option></select></td>
 <td><select data-id="${t.id}" data-f="payment_method" class="row-edit"><option value="" ${!t.payment_method?'selected':''}>—</option>${PAY_METHODS.map(p=>`<option value="${p}" ${p===t.payment_method?'selected':''}>${p}</option>`).join('')}${t.payment_method&&!PAY_METHODS.includes(t.payment_method)?`<option value="${t.payment_method}" selected>${t.payment_method}</option>`:''}</select></td>
-<td><button class="btn-sm" onclick="openSplit('${t.id}')">÷</button> <button class="btn-sm" style="color:var(--red)" onclick="delTx('${t.id}')">✕</button></td>
+<td style="white-space:nowrap"><button class="btn-sm" onclick="openSplit('${t.id}')">÷</button>${t.type==='income'?` <button class="btn-sm" title="Vincular a divisão" onclick="openLinkSplit('${t.id}')">÷↩</button>`:''} <button class="btn-sm" style="color:var(--red)" onclick="delTx('${t.id}')">✕</button></td>
 </tr>`;
 });
 h+=`<tr style="border-top:2px solid var(--gold)">
@@ -726,7 +772,7 @@ function buildValidationTable(rows){
 let h='<table class="tx-table"><tr><th>Data</th><th>Descrição</th><th>Valor</th><th>Saldo</th><th>Tipo</th><th>Nat.</th><th>Categoria</th><th>Forma</th><th>Interna</th><th>Sigiloso</th><th></th></tr>';
 rows.forEach(t=>{
 const sp=SPLITS[t.id]||[];
-const splitBadges=sp.map(s=>`<span class="split-badge">${s.people?.name||'?'}: ${fmt(s.amount)}</span>`).join(' ');
+const splitBadges=sp.map(s=>`<span class="split-badge">${s.people?.name||'?'}: ${fmt(s.amount)}${s.paid_tx_id?' ✓':''}</span>`).join(' ');
 const descVal=(t.desc||'').replace(/"/g,'&quot;');
 h+=`<tr>
 <td class="mono dim">${(t.date||'').split('-').reverse().join('/')}</td>
@@ -739,7 +785,7 @@ h+=`<tr>
 <td><select data-id="${t.id}" data-f="payment_method" class="row-edit"><option value="" ${!t.payment_method?'selected':''}>—</option>${PAY_METHODS.map(p=>`<option value="${p}" ${p===t.payment_method?'selected':''}>${p}</option>`).join('')}${t.payment_method&&!PAY_METHODS.includes(t.payment_method)?`<option value="${t.payment_method}" selected>${t.payment_method}</option>`:''}</select></td>
 <td style="text-align:center"><input type="checkbox" data-id="${t.id}" data-f="internal" class="row-edit-chk" ${t.internal?'checked':''}></td>
 <td style="text-align:center"><input type="checkbox" data-id="${t.id}" data-f="confidential" class="row-edit-chk" ${t.confidential?'checked':''}></td>
-<td style="white-space:nowrap"><button class="btn-sm" onclick="openSplit('${t.id}')">÷</button> <button class="btn-sm" onclick="validateTx('${t.id}')" style="color:var(--green);border-color:var(--green)">✓ Validar</button> <button class="btn-sm" style="color:var(--red)" onclick="delTx('${t.id}')">✕</button></td>
+<td style="white-space:nowrap"><button class="btn-sm" onclick="openSplit('${t.id}')">÷</button>${t.type==='income'?` <button class="btn-sm" title="Vincular a divisão" onclick="openLinkSplit('${t.id}')">÷↩</button>`:''} <button class="btn-sm" onclick="validateTx('${t.id}')" style="color:var(--green);border-color:var(--green)">✓ Validar</button> <button class="btn-sm" style="color:var(--red)" onclick="delTx('${t.id}')">✕</button></td>
 </tr>`;
 });
 return h+'</table>';
@@ -970,6 +1016,34 @@ const wb=XLSX.utils.book_new();
 XLSX.utils.book_append_sheet(wb,ws,'Transações');
 XLSX.writeFile(wb,`transacoes_${PERIOD.from}_a_${PERIOD.to}.xlsx`);
 });
+window.openLinkSplit=(txId)=>{
+const tx=TX.find(t=>t.id===txId);if(!tx)return;
+const modal=$('modal-linksplit');
+const allSplits=Object.entries(SPLITS).flatMap(([tid,arr])=>arr.map(s=>({...s,parent:TX.find(t=>t.id===tid)}))).filter(s=>s.parent&&!s.parent.deleted);
+const linked=allSplits.filter(s=>s.paid_tx_id===txId);
+const unpaid=allSplits.filter(s=>!s.paid_tx_id).sort((a,b)=>(b.parent.date||'').localeCompare(a.parent.date||''));
+$('linksplit-atual').innerHTML=linked.length?'<div class="label" style="margin-top:8px">Já vinculado a:</div>'+linked.map(s=>`<div class="row" style="font-size:12px;margin-top:6px"><span>${s.people?.name||'?'} — ${fmt(s.amount)} <span class="dim">(${s.parent.desc}, ${(s.parent.date||'').split('-').reverse().join('/')})</span></span><button class="btn-sm" style="color:var(--red)" onclick="unlinkSplit('${s.id}')">Desvincular</button></div>`).join(''):'';
+$('linksplit-list').innerHTML='<div class="label" style="margin-top:4px">Divisões em aberto ('+fmt(tx.value)+' recebidos):</div>'+(unpaid.length?unpaid.map(s=>{
+const match=Math.abs(Number(s.amount)-Number(tx.value))<0.01;
+return `<div class="row" style="font-size:12px;margin-top:6px;align-items:center">
+<span style="flex:1">${s.people?.name||'?'} — <b class="mono">${fmt(s.amount)}</b>${match?' <span class="green" style="font-size:10px">valor igual</span>':''}<br><span class="dim">${s.parent.desc} · ${(s.parent.date||'').split('-').reverse().join('/')}</span></span>
+<button class="btn-sm" onclick="linkSplit('${s.id}','${txId}')">Vincular</button>
+</div>`;
+}).join(''):'<div class="msg">Nenhuma divisão em aberto. Se a transação original ainda não chegou, valide este recebimento como Interna e vincule depois.</div>');
+modal.classList.remove('hidden');
+};
+window.linkSplit=async(splitId,txId)=>{
+await sb.from('transaction_splits').update({paid_tx_id:txId}).eq('id',splitId);
+await sb.from('transactions').update({internal:true}).eq('id',txId);
+$('modal-linksplit').classList.add('hidden');
+await load();
+};
+window.unlinkSplit=async(splitId)=>{
+await sb.from('transaction_splits').update({paid_tx_id:null}).eq('id',splitId);
+$('modal-linksplit').classList.add('hidden');
+await load();
+};
+$('btn-close-linksplit').onclick=()=>$('modal-linksplit').classList.add('hidden');
 window.openSplit=async(txId)=>{
 const tx=TX.find(t=>t.id===txId);if(!tx)return;
 $('modal-split-desc').textContent=`${tx.desc} — ${fmt(tx.value)}`;
