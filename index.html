@@ -968,15 +968,27 @@ return `<div style="margin-top:10px;padding:10px;border:1px solid var(--line);bo
 function renderAcerto(){
 if(!ACERTO)return;
 const a=ACERTO;
-let h='';
-if(a.casados.length){h+='<div class="label" style="margin-top:12px">✔ Casados (relatório × divisões)</div><div class="msg" style="margin-top:0">Valor cinza = o que veio no relatório; campo editável = valor final (pré-preenchido com o SEU registro).</div>';
-h+=a.casados.map((c,i)=>acertoRow('c',i,`${c.dela.descricao}`,`minha divisão: ${c.meu.parent.desc} · ${(c.meu.parent.date||'').split('-').reverse().join('/')} · ${fmt(c.meu.amount)}`,c.dela.valor,c.meu.amount,true)).join('');}
-if(a.soDela.length){h+='<div class="label" style="margin-top:14px">❓ Só no relatório (sem divisão correspondente)</div><div class="msg" style="margin-top:0">Desmarque para excluir do acerto.</div>';
-h+=a.soDela.map((it,i)=>acertoRow('d',i,it.descricao,(it.data?it.data.split('-').reverse().join('/'):'sem data'),null,it.valor,true)).join('');}
-if(a.esquecidas.length){h+='<div class="label" style="margin-top:14px">➕ Divisões que faltaram no relatório</div>';
-h+=a.esquecidas.map((s,i)=>acertoRow('e',i,s.parent.desc,(s.parent.date||'').split('-').reverse().join('/')+' · divisão de '+fmt(s.amount),null,s.amount,true)).join('');}
-if(a.euDevo.length){h+='<div class="label" style="margin-top:14px">↩ Eu devo (desconta do total)</div>';
-h+=a.euDevo.map((it,i)=>acertoRow('x',i,it.descricao,(it.data?it.data.split('-').reverse().join('/'):'sem data'),null,it.valor,true)).join('');}
+// lista única em ordem cronológica, com etiqueta de tipo por item
+const TAGS={c:'<span style="font-size:10px;color:var(--green)">✔ casado</span>',d:'<span style="font-size:10px;color:var(--gold)">❓ só no relatório</span>',e:'<span style="font-size:10px;color:#6cf">➕ faltou no relatório</span>',x:'<span style="font-size:10px;color:var(--red)">↩ eu devo</span>'};
+const entries=[];
+a.casados.forEach((c,i)=>entries.push({g:'c',i,date:c.meu.parent.date||c.dela.data||null,titulo:c.dela.descricao,sub:`minha divisão: ${c.meu.parent.desc} · ${(c.meu.parent.date||'').split('-').reverse().join('/')} · ${fmt(c.meu.amount)}`,valorDela:c.dela.valor,valorFinal:c.meu.amount,valorNum:Number(c.meu.amount)}));
+a.soDela.forEach((it,i)=>entries.push({g:'d',i,date:it.data||null,titulo:it.descricao,sub:(it.data?it.data.split('-').reverse().join('/'):'sem data'),valorDela:null,valorFinal:it.valor,valorNum:Number(it.valor)}));
+a.esquecidas.forEach((s,i)=>entries.push({g:'e',i,date:s.parent.date||null,titulo:s.parent.desc,sub:(s.parent.date||'').split('-').reverse().join('/')+' · divisão de '+fmt(s.amount),valorDela:null,valorFinal:s.amount,valorNum:Number(s.amount)}));
+a.euDevo.forEach((it,i)=>entries.push({g:'x',i,date:it.data||null,titulo:it.descricao,sub:(it.data?it.data.split('-').reverse().join('/'):'sem data'),valorDela:null,valorFinal:it.valor,valorNum:Number(it.valor)}));
+entries.sort((p,q)=>((p.date||'9999-12-31').localeCompare(q.date||'9999-12-31')));
+// detecção de possível duplicidade: valores iguais/próximos (≤2% ou ≤R$1) em datas próximas (≤3 dias)
+for(let i=0;i<entries.length;i++){
+for(let j=i+1;j<entries.length;j++){
+const A=entries[i],B=entries[j];
+if(!A.date||!B.date)continue;
+const dd=Math.abs((new Date(A.date+'T12:00:00')-new Date(B.date+'T12:00:00'))/86400000);
+if(dd>3)continue;
+const dv=Math.abs(A.valorNum-B.valorNum);
+if(dv<=Math.max(1,A.valorNum*0.02)){A.dup=true;B.dup=true;}
+}
+}
+let h='<div class="msg" style="margin-top:10px">Lista única em ordem cronológica. Valor cinza = o que veio no relatório; campo editável = valor final. Itens com <span style="color:var(--red)">⚠</span> têm valor e data próximos de outro item — confira se não é duplicidade. Desmarque para excluir do acerto.</div>';
+h+=entries.map(e=>acertoRow(e.g,e.i,(e.dup?'<span style="color:var(--red)">⚠</span> ':'')+e.titulo+' '+TAGS[e.g],e.sub,e.valorDela,e.valorFinal,true)).join('');
 h+=`<div style="margin-top:14px;padding-top:10px;border-top:1px solid var(--line)">
 <div class="row" style="font-size:13px"><span>${a.pessoa} me deve</span><span class="mono green" id="ac-tot-recebe">—</span></div>
 <div class="row" style="font-size:13px;margin-top:4px"><span>Eu devo</span><span class="mono red" id="ac-tot-devo">—</span></div>
@@ -1003,21 +1015,23 @@ if($('ac-tot-liq'))$('ac-tot-liq').textContent=fmt(liq);
 window.exportAcerto=()=>{
 if(!ACERTO)return;
 const a=ACERTO;
+const itens=[];
+a.casados.forEach((c,i)=>itens.push({g:'c',i,tipo:'Ela deve',date:c.meu.parent.date||c.dela.data||null,desc:c.dela.descricao+' (÷ '+c.meu.parent.desc+')',vInf:Number(c.dela.valor)}));
+a.soDela.forEach((it,i)=>itens.push({g:'d',i,tipo:'Ela deve',date:it.data||null,desc:it.descricao,vInf:Number(it.valor)}));
+a.esquecidas.forEach((s,i)=>itens.push({g:'e',i,tipo:'Ela deve (faltou no relatório)',date:s.parent.date||null,desc:s.parent.desc,vInf:null}));
+a.euDevo.forEach((it,i)=>itens.push({g:'x',i,tipo:'Eu devo',date:it.data||null,desc:it.descricao,vInf:Number(it.valor)}));
+itens.sort((p,q)=>((p.date||'9999-12-31').localeCompare(q.date||'9999-12-31')));
 const rows=[['Tipo','Data','Descrição','Valor informado','Valor final','Situação']];
-function push(tipo,data,desc,vInf,g,i){
-const chk=document.querySelector(`.ac-inc[data-g="${g}"][data-i="${i}"]`);
-const inp=document.querySelector(`.ac-final[data-g="${g}"][data-i="${i}"]`);
+let recebe=0,devo=0;
+itens.forEach(it=>{
+const chk=document.querySelector(`.ac-inc[data-g="${it.g}"][data-i="${it.i}"]`);
+const inp=document.querySelector(`.ac-final[data-g="${it.g}"][data-i="${it.i}"]`);
 const vf=Number(inp?.value||0);
 const inc=chk?.checked;
-const sit=!inc?'EXCLUÍDO':(vInf!=null&&Math.abs(vf-vInf)>0.009?'AJUSTADO':'CONFIRMADO');
-rows.push([tipo,data||'',desc,vInf!=null?vInf:'',inc?vf:0,sit]);
-return inc?vf:0;
-}
-let recebe=0,devo=0;
-a.casados.forEach((c,i)=>{recebe+=push('Ela deve',c.dela.data,c.dela.descricao+' (÷ '+c.meu.parent.desc+')',Number(c.dela.valor),'c',i);});
-a.soDela.forEach((it,i)=>{recebe+=push('Ela deve',it.data,it.descricao,Number(it.valor),'d',i);});
-a.esquecidas.forEach((s,i)=>{recebe+=push('Ela deve (faltou no relatório)',s.parent.date,s.parent.desc,null,'e',i);});
-a.euDevo.forEach((it,i)=>{devo+=push('Eu devo',it.data,it.descricao,Number(it.valor),'x',i);});
+const sit=!inc?'EXCLUÍDO':(it.vInf!=null&&Math.abs(vf-it.vInf)>0.009?'AJUSTADO':'CONFIRMADO');
+rows.push([it.tipo,it.date?it.date.split('-').reverse().join('/'):'',it.desc,it.vInf!=null?it.vInf:'',inc?vf:0,sit]);
+if(inc){if(it.g==='x')devo+=vf;else recebe+=vf;}
+});
 rows.push([]);
 rows.push(['','','TOTAL a receber','',recebe,'']);
 rows.push(['','','TOTAL que devo','',devo,'']);
