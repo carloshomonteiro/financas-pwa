@@ -987,8 +987,8 @@ const dv=Math.abs(A.valorNum-B.valorNum);
 if(dv<=Math.max(1,A.valorNum*0.02)){A.dup=true;B.dup=true;}
 }
 }
-let h='<div class="msg" style="margin-top:10px">Lista única em ordem cronológica. Valor cinza = o que veio no relatório; campo editável = valor final. Itens com <span style="color:var(--red)">⚠</span> têm valor e data próximos de outro item — confira se não é duplicidade. Desmarque para excluir do acerto.</div>';
-h+=entries.map(e=>acertoRow(e.g,e.i,(e.dup?'<span style="color:var(--red)">⚠</span> ':'')+e.titulo+' '+TAGS[e.g],e.sub,e.valorDela,e.valorFinal,true)).join('');
+let h='<div class="msg" style="margin-top:10px">Lista única em ordem cronológica. Valor cinza = o que veio no relatório; campo editável = valor final. Itens com <span style="color:var(--red)">⚠</span> têm valor e data próximos de outro item — confira se não é duplicidade. <b>Nada vem pré-selecionado: marque o checkbox de cada item para incluí-lo no acerto</b> (depois de conferir/ajustar o valor) — só os marcados entram nos totais e no relatório.</div>';
+h+=entries.map(e=>acertoRow(e.g,e.i,(e.dup?'<span style="color:var(--red)">⚠</span> ':'')+e.titulo+' '+TAGS[e.g],e.sub,e.valorDela,e.valorFinal,false)).join('');
 h+=`<div style="margin-top:14px;padding-top:10px;border-top:1px solid var(--line)">
 <div class="row" style="font-size:13px"><span>${a.pessoa} me deve</span><span class="mono green" id="ac-tot-recebe">—</span></div>
 <div class="row" style="font-size:13px;margin-top:4px"><span>Eu devo</span><span class="mono red" id="ac-tot-devo">—</span></div>
