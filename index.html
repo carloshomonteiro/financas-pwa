@@ -160,6 +160,17 @@ table.tx-table .split-badge { display:inline-block; background:var(--line); colo
 <div class="msg" id="fatura-msg"></div>
 </div>
 <div class="card">
+<div class="label">Acerto do ciclo (relatório de divisões)</div>
+<div class="msg">Importe a planilha de acerto recebida (ex: da Débora). O sistema correlaciona com as divisões em aberto da pessoa, você define o valor final de cada item, exclui o que não faz sentido e inclui o que ela esqueceu — e gera o relatório corrigido em xlsx pra devolver.</div>
+<div class="row" style="gap:8px;margin-top:10px;flex-wrap:wrap">
+<select id="acerto-pessoa" style="margin-top:0;flex:1;min-width:120px"></select>
+<button class="btn-sm" id="btn-acerto-upload" style="margin-top:0">📥 Importar planilha (xlsx)</button>
+</div>
+<input type="file" accept=".xlsx,.xls" id="file-acerto" class="hidden">
+<div class="msg" id="acerto-msg"></div>
+<div id="acerto-area"></div>
+</div>
+<div class="card">
 <div class="label">Transações pendentes de validação</div>
 <div class="msg">Toda transação vinda do Open Finance cai aqui primeiro. Revise, edite e clique em Validar para que ela entre nos totais do Painel. Use "Interna" para transferências entre suas próprias contas ou reembolsos de divisão que não devem contar como receita/despesa.</div>
 <div class="tx-scroll" id="validation-table"></div>
@@ -503,6 +514,7 @@ renderHistorico();
 renderValidation();
 renderBillAudit();
 populateFaturaCardSelect();
+populateAcertoPessoa();
 renderInvestments();
 }
 function renderInvEvolucao(){
@@ -844,6 +856,122 @@ $('fatura-msg').innerHTML=`<span class="green">✓ ${inseridas} transação(ões
 $('file-fatura').value='';
 await load();
 }catch(e){$('fatura-msg').innerHTML='<span class="red">Erro: '+e.message+'</span>';$('file-fatura').value='';}
+};
+function populateAcertoPessoa(){
+const sel=$('acerto-pessoa');if(!sel)return;
+sel.innerHTML=PEOPLE.map(p=>`<option value="${p.id}"${/d[eé]bora/i.test(p.name)?' selected':''}>${p.name}</option>`).join('');
+}
+function normTxt(s){return (s||'').toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g,'').replace(/[^a-z0-9 ]/g,' ').split(/\s+/).filter(w=>w.length>2);}
+function descSim(a,b){const ta=normTxt(a),tb=normTxt(b);if(!ta.length||!tb.length)return 0;const setB=new Set(tb);const inter=ta.filter(w=>setB.has(w)).length;return inter/Math.min(ta.length,tb.length);}
+let ACERTO=null;
+$('btn-acerto-upload').onclick=()=>$('file-acerto').click();
+$('file-acerto').onchange=async()=>{
+const file=$('file-acerto').files[0];if(!file)return;
+$('acerto-msg').textContent='Lendo a planilha com IA...';
+try{
+const buf=await file.arrayBuffer();
+const wb=XLSX.read(buf,{type:'array'});
+let csv='';wb.SheetNames.forEach(n=>{csv+='--- Aba: '+n+' ---\n'+XLSX.utils.sheet_to_csv(wb.Sheets[n])+'\n';});
+const out=await callFn({mode:'acerto',csv:csv.slice(0,100000)});
+const itens=(out.itens||[]).filter(i=>i.descricao&&i.valor>0);
+if(!itens.length){$('acerto-msg').innerHTML='<span class="red">Nenhum item encontrado na planilha.</span>';$('file-acerto').value='';return;}
+const pessoaId=$('acerto-pessoa').value;
+const pessoa=PEOPLE.find(p=>p.id===pessoaId);
+const mySplits=Object.entries(SPLITS).flatMap(([tid,arr])=>arr.map(s=>({...s,parent:TX.find(t=>t.id===tid)}))).filter(s=>s.parent&&!s.parent.deleted&&!s.paid_tx_id&&s.person_id===pessoaId);
+const usados=new Set();
+const casados=[],soDela=[],euDevo=[];
+itens.forEach(it=>{
+if(it.direcao==='eu_devo'){euDevo.push(it);return;}
+let best=null,bestScore=0;
+mySplits.forEach(s=>{
+if(usados.has(s.id))return;
+let score=0;
+const dv=Math.abs(Number(s.amount)-Number(it.valor));
+if(dv<0.01)score+=2;else if(dv/Number(it.valor)<=0.01)score+=1;
+if(descSim(s.parent.desc,it.descricao)>=0.4)score+=1;
+if(it.data&&s.parent.date){const dd=Math.abs((new Date(s.parent.date+'T12:00:00')-new Date(it.data+'T12:00:00'))/86400000);if(dd<=6)score+=0.5;}
+if(score>bestScore){bestScore=score;best=s;}
+});
+if(best&&bestScore>=2){usados.add(best.id);casados.push({dela:it,meu:best});}
+else soDela.push(it);
+});
+const esquecidas=mySplits.filter(s=>!usados.has(s.id));
+ACERTO={pessoa:pessoa?.name||'?',casados,soDela,euDevo,esquecidas};
+renderAcerto();
+$('acerto-msg').innerHTML=`<span class="green">✓ ${itens.length} itens lidos.</span> ${casados.length} casados com divisões, ${soDela.length} só no relatório, ${esquecidas.length} divisões que faltaram nele.`;
+}catch(e){$('acerto-msg').innerHTML='<span class="red">Erro: '+e.message+'</span>';}
+$('file-acerto').value='';
+};
+function acertoRow(group,idx,titulo,sub,valorDela,valorFinal,incluido){
+return `<div class="row" style="font-size:12px;margin-top:8px;align-items:center;gap:6px">
+<input type="checkbox" class="ac-inc" data-g="${group}" data-i="${idx}" ${incluido?'checked':''} onchange="recalcAcerto()">
+<span style="flex:1">${titulo}<br><span class="dim">${sub}</span></span>
+${valorDela!=null?`<span class="mono dim" style="font-size:11px">${fmt(valorDela)}</span>`:''}
+<input type="number" step="0.01" class="ac-final mono" data-g="${group}" data-i="${idx}" value="${Number(valorFinal).toFixed(2)}" style="width:90px;margin-top:0;text-align:right" oninput="recalcAcerto()">
+</div>`;
+}
+function renderAcerto(){
+if(!ACERTO)return;
+const a=ACERTO;
+let h='';
+if(a.casados.length){h+='<div class="label" style="margin-top:12px">✔ Casados (relatório × divisões)</div><div class="msg" style="margin-top:0">Valor cinza = o que veio no relatório; campo editável = valor final (pré-preenchido com o SEU registro).</div>';
+h+=a.casados.map((c,i)=>acertoRow('c',i,`${c.dela.descricao}`,`minha divisão: ${c.meu.parent.desc} · ${(c.meu.parent.date||'').split('-').reverse().join('/')} · ${fmt(c.meu.amount)}`,c.dela.valor,c.meu.amount,true)).join('');}
+if(a.soDela.length){h+='<div class="label" style="margin-top:14px">❓ Só no relatório (sem divisão correspondente)</div><div class="msg" style="margin-top:0">Desmarque para excluir do acerto.</div>';
+h+=a.soDela.map((it,i)=>acertoRow('d',i,it.descricao,(it.data?it.data.split('-').reverse().join('/'):'sem data'),null,it.valor,true)).join('');}
+if(a.esquecidas.length){h+='<div class="label" style="margin-top:14px">➕ Divisões que faltaram no relatório</div>';
+h+=a.esquecidas.map((s,i)=>acertoRow('e',i,s.parent.desc,(s.parent.date||'').split('-').reverse().join('/')+' · divisão de '+fmt(s.amount),null,s.amount,true)).join('');}
+if(a.euDevo.length){h+='<div class="label" style="margin-top:14px">↩ Eu devo (desconta do total)</div>';
+h+=a.euDevo.map((it,i)=>acertoRow('x',i,it.descricao,(it.data?it.data.split('-').reverse().join('/'):'sem data'),null,it.valor,true)).join('');}
+h+=`<div style="margin-top:14px;padding-top:10px;border-top:1px solid var(--line)">
+<div class="row" style="font-size:13px"><span>${a.pessoa} me deve</span><span class="mono green" id="ac-tot-recebe">—</span></div>
+<div class="row" style="font-size:13px;margin-top:4px"><span>Eu devo</span><span class="mono red" id="ac-tot-devo">—</span></div>
+<div class="row" style="font-size:14px;margin-top:8px"><span><b>Líquido a receber</b></span><span class="mono gold" id="ac-tot-liq">—</span></div>
+<button class="btn-outline" id="btn-acerto-export" style="margin-top:12px" onclick="exportAcerto()">⬇ Gerar relatório corrigido (xlsx)</button>
+</div>`;
+$('acerto-area').innerHTML=h;
+recalcAcerto();
+}
+window.recalcAcerto=()=>{
+let recebe=0,devo=0;
+document.querySelectorAll('.ac-inc').forEach(chk=>{
+if(!chk.checked)return;
+const g=chk.dataset.g,i=chk.dataset.i;
+const inp=document.querySelector(`.ac-final[data-g="${g}"][data-i="${i}"]`);
+const v=Number(inp?.value||0);
+if(g==='x')devo+=v;else recebe+=v;
+});
+const liq=recebe-devo;
+if($('ac-tot-recebe'))$('ac-tot-recebe').textContent=fmt(recebe);
+if($('ac-tot-devo'))$('ac-tot-devo').textContent=fmt(devo);
+if($('ac-tot-liq'))$('ac-tot-liq').textContent=fmt(liq);
+};
+window.exportAcerto=()=>{
+if(!ACERTO)return;
+const a=ACERTO;
+const rows=[['Tipo','Data','Descrição','Valor informado','Valor final','Situação']];
+function push(tipo,data,desc,vInf,g,i){
+const chk=document.querySelector(`.ac-inc[data-g="${g}"][data-i="${i}"]`);
+const inp=document.querySelector(`.ac-final[data-g="${g}"][data-i="${i}"]`);
+const vf=Number(inp?.value||0);
+const inc=chk?.checked;
+const sit=!inc?'EXCLUÍDO':(vInf!=null&&Math.abs(vf-vInf)>0.009?'AJUSTADO':'CONFIRMADO');
+rows.push([tipo,data||'',desc,vInf!=null?vInf:'',inc?vf:0,sit]);
+return inc?vf:0;
+}
+let recebe=0,devo=0;
+a.casados.forEach((c,i)=>{recebe+=push('Ela deve',c.dela.data,c.dela.descricao+' (÷ '+c.meu.parent.desc+')',Number(c.dela.valor),'c',i);});
+a.soDela.forEach((it,i)=>{recebe+=push('Ela deve',it.data,it.descricao,Number(it.valor),'d',i);});
+a.esquecidas.forEach((s,i)=>{recebe+=push('Ela deve (faltou no relatório)',s.parent.date,s.parent.desc,null,'e',i);});
+a.euDevo.forEach((it,i)=>{devo+=push('Eu devo',it.data,it.descricao,Number(it.valor),'x',i);});
+rows.push([]);
+rows.push(['','','TOTAL a receber','',recebe,'']);
+rows.push(['','','TOTAL que devo','',devo,'']);
+rows.push(['','','LÍQUIDO','',recebe-devo,'']);
+const ws=XLSX.utils.aoa_to_sheet(rows);
+ws['!cols']=[{wch:26},{wch:11},{wch:44},{wch:14},{wch:12},{wch:12}];
+const wb2=XLSX.utils.book_new();
+XLSX.utils.book_append_sheet(wb2,ws,'Acerto');
+XLSX.writeFile(wb2,'acerto_'+a.pessoa.toLowerCase()+'_'+new Date().toISOString().slice(0,10)+'.xlsx');
 };
 function renderBillAudit(){
 const el=$('bill-audit');if(!el)return;
