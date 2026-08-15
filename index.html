@@ -912,9 +912,10 @@ $('file-acerto').value='';
 function renderAcertoEmails(){
 const el=$('acerto-emails');if(!el)return;
 const pend=ACERTO_EMAILS.filter(a=>a.status==='pendente');
-const outros=ACERTO_EMAILS.length-pend.length;
-if(!pend.length){el.innerHTML=outros?`<div class="msg">${outros} relatório(s) por e-mail já tratados anteriormente.</div>`:'';return;}
-el.innerHTML='<div class="label" style="margin-top:8px">📬 Relatórios recebidos por e-mail</div><div class="msg" style="margin-top:0">A Débora enviou mais de uma versão? Analise a mais recente e descarte as demais — nada é processado sem a sua confirmação.</div>'+pend.map(a=>{
+const outros=ACERTO_EMAILS.filter(a=>a.status!=='pendente');
+let h='';
+if(pend.length){
+h+='<div class="label" style="margin-top:8px">📬 Relatórios recebidos por e-mail</div><div class="msg" style="margin-top:0">Mais de uma versão? Analise a mais recente e descarte as demais — nada é processado sem a sua confirmação.</div>'+pend.map(a=>{
 const dt=a.email_date?new Date(a.email_date).toLocaleString('pt-BR',{day:'2-digit',month:'2-digit',hour:'2-digit',minute:'2-digit'}):'';
 const preview=(a.conteudo||'').replace(/\s+/g,' ').slice(0,90);
 return `<div style="margin-top:10px;padding:8px;border:1px solid var(--line);border-radius:8px">
@@ -926,6 +927,17 @@ return `<div style="margin-top:10px;padding:8px;border:1px solid var(--line);bor
 </div>
 </div>`;
 }).join('');
+}
+if(outros.length){
+h+='<div class="label" style="margin-top:10px;font-size:10px">Relatórios anteriores</div>'+outros.map(a=>{
+const dt=a.email_date?new Date(a.email_date).toLocaleString('pt-BR',{day:'2-digit',month:'2-digit',hour:'2-digit',minute:'2-digit'}):'';
+return `<div class="row" style="font-size:11px;margin-top:6px;align-items:center">
+<span class="dim" style="flex:1;min-width:0">${a.subject||'(sem assunto)'} · ${dt} · ${a.origem} <i>(${a.status})</i></span>
+<button class="btn-sm" onclick="usarAcertoEmail('${a.id}')">Reanalisar</button>
+</div>`;
+}).join('');
+}
+el.innerHTML=h;
 }
 window.usarAcertoEmail=async(id)=>{
 const a=ACERTO_EMAILS.find(x=>x.id===id);if(!a)return;
