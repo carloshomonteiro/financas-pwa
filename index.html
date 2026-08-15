@@ -942,11 +942,15 @@ const a=ACERTO_EMAILS.find(x=>x.id===id);if(a)a.status='descartado';
 renderAcertoEmails();
 };
 function acertoRow(group,idx,titulo,sub,valorDela,valorFinal,incluido){
-return `<div class="row" style="font-size:12px;margin-top:8px;align-items:center;gap:6px">
-<input type="checkbox" class="ac-inc" data-g="${group}" data-i="${idx}" ${incluido?'checked':''} onchange="recalcAcerto()">
-<span style="flex:1">${titulo}<br><span class="dim">${sub}</span></span>
-${valorDela!=null?`<span class="mono dim" style="font-size:11px">${fmt(valorDela)}</span>`:''}
-<input type="number" step="0.01" class="ac-final mono" data-g="${group}" data-i="${idx}" value="${Number(valorFinal).toFixed(2)}" style="width:90px;margin-top:0;text-align:right" oninput="recalcAcerto()">
+return `<div style="margin-top:10px;padding:10px;border:1px solid var(--line);border-radius:8px">
+<div style="display:flex;gap:10px;align-items:flex-start">
+<input type="checkbox" class="ac-inc" data-g="${group}" data-i="${idx}" ${incluido?'checked':''} onchange="recalcAcerto()" style="margin-top:2px;width:auto">
+<div style="flex:1;min-width:0;font-size:13px;line-height:1.35"><b>${titulo}</b><br><span class="dim" style="font-size:11px">${sub}</span></div>
+</div>
+<div style="display:flex;justify-content:space-between;align-items:center;gap:8px;margin-top:8px">
+<span class="dim mono" style="font-size:11px">${valorDela!=null?'no relatório: '+fmt(valorDela):''}</span>
+<input type="number" step="0.01" class="ac-final mono" data-g="${group}" data-i="${idx}" value="${Number(valorFinal).toFixed(2)}" style="width:110px;margin-top:0;text-align:right;flex:none" oninput="recalcAcerto()">
+</div>
 </div>`;
 }
 function renderAcerto(){
