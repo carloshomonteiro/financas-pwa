@@ -162,6 +162,7 @@ table.tx-table .split-badge { display:inline-block; background:var(--line); colo
 <div class="card">
 <div class="label">Acerto do ciclo (relatório de divisões)</div>
 <div class="msg">Importe a planilha de acerto recebida (ex: da Débora). O sistema correlaciona com as divisões em aberto da pessoa, você define o valor final de cada item, exclui o que não faz sentido e inclui o que ela esqueceu — e gera o relatório corrigido em xlsx pra devolver.</div>
+<div id="acerto-emails"></div>
 <div class="row" style="gap:8px;margin-top:10px;flex-wrap:wrap">
 <select id="acerto-pessoa" style="margin-top:0;flex:1;min-width:120px"></select>
 <button class="btn-sm" id="btn-acerto-upload" style="margin-top:0">📥 Importar planilha (xlsx)</button>
@@ -293,7 +294,7 @@ const sb=createClient(SB_URL,SB_KEY);
 const $=id=>document.getElementById(id);
 const fmt=n=>'R$ '+Number(n).toLocaleString('pt-BR',{minimumFractionDigits:2});
 const hoje=()=>new Date().toISOString().slice(0,10);
-let TX=[],GOALS={},FC=[],INC=[],PEOPLE=[],SPLITS={},AUDIT=[],PENDING=[],INVESTMENTS=[],BILLS=[],SNAPSHOTS=[],CDI_PROMISE=null,SHOW_INACTIVE_INV=false,form={type:'expense',category:'Outros',nature:'variavel'};
+let TX=[],GOALS={},FC=[],INC=[],PEOPLE=[],SPLITS={},AUDIT=[],PENDING=[],INVESTMENTS=[],BILLS=[],SNAPSHOTS=[],ACERTO_EMAILS=[],CDI_PROMISE=null,SHOW_INACTIVE_INV=false,form={type:'expense',category:'Outros',nature:'variavel'};
 function freshFilters(){return{desc:'',date:{from:'',to:''},value:{min:'',max:''},saldo:{min:'',max:''},type:new Set(),nature:new Set(),category:new Set(),payment_method:new Set()};}
 let FILTERS=freshFilters();
 let SORT={key:'date',dir:'desc'};
@@ -462,7 +463,7 @@ setTimeout(()=>ss.classList.add('hidden'),15000);
 }
 $('btn-sync').onclick=doSync;
 async function load(){
-const[t,g,f,ic,p,sp,c,au,inv,bl,snp]=await Promise.all([
+const[t,g,f,ic,p,sp,c,au,inv,bl,snp,ace]=await Promise.all([
 sb.from('transactions').select('*').order('date',{ascending:false}).limit(3000),
 sb.from('goals').select('*'),
 sb.from('forecasts').select('*'),
@@ -474,6 +475,7 @@ sb.from('audit_log').select('*,transactions(desc,date,value,type,category,paymen
 sb.from('investments').select('*').order('balance',{ascending:false}),
 sb.from('credit_card_bills').select('*').order('due_date',{ascending:false}),
 sb.from('investment_snapshots').select('*').order('snap_date'),
+sb.from('acerto_emails').select('*').order('email_date',{ascending:false}),
 ]);
 TX=t.data||[];GOALS={};(g.data||[]).forEach(x=>GOALS[x.category]=Number(x.amount));
 FC=f.data||[];INC=ic.data||[];PEOPLE=p.data||[];
@@ -482,6 +484,7 @@ AUDIT=au.data||[];
 INVESTMENTS=inv.data||[];
 BILLS=bl.data||[];
 SNAPSHOTS=snp.data||[];
+ACERTO_EMAILS=ace.data||[];
 PENDING=TX.filter(t=>!t.deleted&&t.validated===false);
 const vc=$('val-count');if(PENDING.length&&MY_ROLE==='owner'){vc.textContent=PENDING.length;vc.classList.remove('hidden');}else{vc.classList.add('hidden');}
 SPLITS={};(sp.data||[]).forEach(s=>{if(!SPLITS[s.transaction_id])SPLITS[s.transaction_id]=[];SPLITS[s.transaction_id].push(s);});
@@ -515,6 +518,7 @@ renderValidation();
 renderBillAudit();
 populateFaturaCardSelect();
 populateAcertoPessoa();
+renderAcertoEmails();
 renderInvestments();
 }
 function renderInvEvolucao(){
@@ -865,16 +869,10 @@ function normTxt(s){return (s||'').toLowerCase().normalize('NFD').replace(/[\u03
 function descSim(a,b){const ta=normTxt(a),tb=normTxt(b);if(!ta.length||!tb.length)return 0;const setB=new Set(tb);const inter=ta.filter(w=>setB.has(w)).length;return inter/Math.min(ta.length,tb.length);}
 let ACERTO=null;
 $('btn-acerto-upload').onclick=()=>$('file-acerto').click();
-$('file-acerto').onchange=async()=>{
-const file=$('file-acerto').files[0];if(!file)return;
-$('acerto-msg').textContent='Lendo a planilha com IA...';
-try{
-const buf=await file.arrayBuffer();
-const wb=XLSX.read(buf,{type:'array'});
-let csv='';wb.SheetNames.forEach(n=>{csv+='--- Aba: '+n+' ---\n'+XLSX.utils.sheet_to_csv(wb.Sheets[n])+'\n';});
-const out=await callFn({mode:'acerto',csv:csv.slice(0,100000)});
+async function processAcertoConteudo(csv){
+const out=await callFn({mode:'acerto',csv:(csv||'').slice(0,100000)});
 const itens=(out.itens||[]).filter(i=>i.descricao&&i.valor>0);
-if(!itens.length){$('acerto-msg').innerHTML='<span class="red">Nenhum item encontrado na planilha.</span>';$('file-acerto').value='';return;}
+if(!itens.length)throw new Error('Nenhum item encontrado no conteúdo.');
 const pessoaId=$('acerto-pessoa').value;
 const pessoa=PEOPLE.find(p=>p.id===pessoaId);
 const mySplits=Object.entries(SPLITS).flatMap(([tid,arr])=>arr.map(s=>({...s,parent:TX.find(t=>t.id===tid)}))).filter(s=>s.parent&&!s.parent.deleted&&!s.paid_tx_id&&s.person_id===pessoaId);
@@ -899,8 +897,49 @@ const esquecidas=mySplits.filter(s=>!usados.has(s.id));
 ACERTO={pessoa:pessoa?.name||'?',casados,soDela,euDevo,esquecidas};
 renderAcerto();
 $('acerto-msg').innerHTML=`<span class="green">✓ ${itens.length} itens lidos.</span> ${casados.length} casados com divisões, ${soDela.length} só no relatório, ${esquecidas.length} divisões que faltaram nele.`;
+}
+$('file-acerto').onchange=async()=>{
+const file=$('file-acerto').files[0];if(!file)return;
+$('acerto-msg').textContent='Lendo a planilha com IA...';
+try{
+const buf=await file.arrayBuffer();
+const wb=XLSX.read(buf,{type:'array'});
+let csv='';wb.SheetNames.forEach(n=>{csv+='--- Aba: '+n+' ---\n'+XLSX.utils.sheet_to_csv(wb.Sheets[n])+'\n';});
+await processAcertoConteudo(csv);
 }catch(e){$('acerto-msg').innerHTML='<span class="red">Erro: '+e.message+'</span>';}
 $('file-acerto').value='';
+};
+function renderAcertoEmails(){
+const el=$('acerto-emails');if(!el)return;
+const pend=ACERTO_EMAILS.filter(a=>a.status==='pendente');
+const outros=ACERTO_EMAILS.length-pend.length;
+if(!pend.length){el.innerHTML=outros?`<div class="msg">${outros} relatório(s) por e-mail já tratados anteriormente.</div>`:'';return;}
+el.innerHTML='<div class="label" style="margin-top:8px">📬 Relatórios recebidos por e-mail</div><div class="msg" style="margin-top:0">A Débora enviou mais de uma versão? Analise a mais recente e descarte as demais — nada é processado sem a sua confirmação.</div>'+pend.map(a=>{
+const dt=a.email_date?new Date(a.email_date).toLocaleString('pt-BR',{day:'2-digit',month:'2-digit',hour:'2-digit',minute:'2-digit'}):'';
+const preview=(a.conteudo||'').replace(/\s+/g,' ').slice(0,90);
+return `<div style="margin-top:10px;padding:8px;border:1px solid var(--line);border-radius:8px">
+<div class="row" style="font-size:12px"><b>${a.subject||'(sem assunto)'}</b><span class="dim">${dt}</span></div>
+<div class="dim" style="font-size:11px;margin-top:2px">${a.origem} — "${preview}..."</div>
+<div class="row" style="gap:6px;margin-top:8px">
+<button class="btn-sm" style="color:var(--green);border-color:var(--green)" onclick="usarAcertoEmail('${a.id}')">✓ Analisar este</button>
+<button class="btn-sm" style="color:var(--red)" onclick="descartarAcertoEmail('${a.id}')">Descartar</button>
+</div>
+</div>`;
+}).join('');
+}
+window.usarAcertoEmail=async(id)=>{
+const a=ACERTO_EMAILS.find(x=>x.id===id);if(!a)return;
+$('acerto-msg').textContent='Analisando o relatório com IA...';
+try{
+await processAcertoConteudo(a.conteudo);
+await sb.from('acerto_emails').update({status:'usado'}).eq('id',id);
+a.status='usado';renderAcertoEmails();
+}catch(e){$('acerto-msg').innerHTML='<span class="red">Erro: '+e.message+'</span>';}
+};
+window.descartarAcertoEmail=async(id)=>{
+await sb.from('acerto_emails').update({status:'descartado'}).eq('id',id);
+const a=ACERTO_EMAILS.find(x=>x.id===id);if(a)a.status='descartado';
+renderAcertoEmails();
 };
 function acertoRow(group,idx,titulo,sub,valorDela,valorFinal,incluido){
 return `<div class="row" style="font-size:12px;margin-top:8px;align-items:center;gap:6px">
