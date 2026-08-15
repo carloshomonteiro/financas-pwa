@@ -974,7 +974,7 @@ const entries=[];
 a.casados.forEach((c,i)=>entries.push({g:'c',i,date:c.meu.parent.date||c.dela.data||null,titulo:c.dela.descricao,sub:`minha divisão: ${c.meu.parent.desc} · ${(c.meu.parent.date||'').split('-').reverse().join('/')} · ${fmt(c.meu.amount)}`,valorDela:c.dela.valor,valorFinal:c.meu.amount,valorNum:Number(c.meu.amount)}));
 a.soDela.forEach((it,i)=>entries.push({g:'d',i,date:it.data||null,titulo:it.descricao,sub:(it.data?it.data.split('-').reverse().join('/'):'sem data'),valorDela:null,valorFinal:it.valor,valorNum:Number(it.valor)}));
 a.esquecidas.forEach((s,i)=>entries.push({g:'e',i,date:s.parent.date||null,titulo:s.parent.desc,sub:(s.parent.date||'').split('-').reverse().join('/')+' · divisão de '+fmt(s.amount),valorDela:null,valorFinal:s.amount,valorNum:Number(s.amount)}));
-a.euDevo.forEach((it,i)=>entries.push({g:'x',i,date:it.data||null,titulo:it.descricao,sub:(it.data?it.data.split('-').reverse().join('/'):'sem data'),valorDela:null,valorFinal:it.valor,valorNum:Number(it.valor)}));
+a.euDevo.forEach((it,i)=>entries.push({g:'x',i,date:it.data||null,titulo:it.descricao,sub:(it.data?it.data.split('-').reverse().join('/'):'sem data'),valorDela:null,valorFinal:-Number(it.valor),valorNum:Number(it.valor)}));
 entries.sort((p,q)=>((p.date||'9999-12-31').localeCompare(q.date||'9999-12-31')));
 // detecção de possível duplicidade: valores iguais/próximos (≤2% ou ≤R$1) em datas próximas (≤3 dias)
 for(let i=0;i<entries.length;i++){
@@ -1005,7 +1005,7 @@ if(!chk.checked)return;
 const g=chk.dataset.g,i=chk.dataset.i;
 const inp=document.querySelector(`.ac-final[data-g="${g}"][data-i="${i}"]`);
 const v=Number(inp?.value||0);
-if(g==='x')devo+=v;else recebe+=v;
+if(v<0)devo+=-v;else recebe+=v;
 });
 const liq=recebe-devo;
 if($('ac-tot-recebe'))$('ac-tot-recebe').textContent=fmt(recebe);
@@ -1019,9 +1019,9 @@ const itens=[];
 a.casados.forEach((c,i)=>itens.push({g:'c',i,tipo:'Ela deve',date:c.meu.parent.date||c.dela.data||null,desc:c.dela.descricao+' (÷ '+c.meu.parent.desc+')',vInf:Number(c.dela.valor)}));
 a.soDela.forEach((it,i)=>itens.push({g:'d',i,tipo:'Ela deve',date:it.data||null,desc:it.descricao,vInf:Number(it.valor)}));
 a.esquecidas.forEach((s,i)=>itens.push({g:'e',i,tipo:'Ela deve (faltou no relatório)',date:s.parent.date||null,desc:s.parent.desc,vInf:null}));
-a.euDevo.forEach((it,i)=>itens.push({g:'x',i,tipo:'Eu devo',date:it.data||null,desc:it.descricao,vInf:Number(it.valor)}));
+a.euDevo.forEach((it,i)=>itens.push({g:'x',i,tipo:'Eu devo',date:it.data||null,desc:it.descricao,vInf:-Number(it.valor)}));
 itens.sort((p,q)=>((p.date||'9999-12-31').localeCompare(q.date||'9999-12-31')));
-const rows=[['Tipo','Data','Descrição','Valor informado','Valor final','Situação']];
+const rows=[['Tipo','Data','Descrição','Valor final','Situação']];
 let recebe=0,devo=0;
 itens.forEach(it=>{
 const chk=document.querySelector(`.ac-inc[data-g="${it.g}"][data-i="${it.i}"]`);
@@ -1029,15 +1029,19 @@ const inp=document.querySelector(`.ac-final[data-g="${it.g}"][data-i="${it.i}"]`
 const vf=Number(inp?.value||0);
 const inc=chk?.checked;
 const sit=!inc?'EXCLUÍDO':(it.vInf!=null&&Math.abs(vf-it.vInf)>0.009?'AJUSTADO':'CONFIRMADO');
-rows.push([it.tipo,it.date?it.date.split('-').reverse().join('/'):'',it.desc,it.vInf!=null?it.vInf:'',inc?vf:0,sit]);
-if(inc){if(it.g==='x')devo+=vf;else recebe+=vf;}
+rows.push([it.tipo,it.date?it.date.split('-').reverse().join('/'):'',it.desc,inc?vf:0,sit]);
+if(inc){if(vf<0)devo+=-vf;else recebe+=vf;}
 });
+const nData=rows.length;
 rows.push([]);
-rows.push(['','','TOTAL a receber','',recebe,'']);
-rows.push(['','','TOTAL que devo','',devo,'']);
-rows.push(['','','LÍQUIDO','',recebe-devo,'']);
+rows.push(['','','TOTAL a receber',recebe,'']);
+rows.push(['','','TOTAL que devo',-devo,'']);
+rows.push(['','','LÍQUIDO',recebe-devo,'']);
 const ws=XLSX.utils.aoa_to_sheet(rows);
-ws['!cols']=[{wch:26},{wch:11},{wch:44},{wch:14},{wch:12},{wch:12}];
+// fórmula viva de subtotal (coluna D), como no modelo do Carlos
+ws['D'+(rows.length+1)]={t:'n',f:'SUBTOTAL(9,D2:D'+nData+')'};
+ws['!ref']=ws['!ref'].replace(/:\D+\d+$/,':E'+(rows.length+1));
+ws['!cols']=[{wch:26},{wch:11},{wch:44},{wch:12},{wch:12}];
 const wb2=XLSX.utils.book_new();
 XLSX.utils.book_append_sheet(wb2,ws,'Acerto');
 XLSX.writeFile(wb2,'acerto_'+a.pessoa.toLowerCase()+'_'+new Date().toISOString().slice(0,10)+'.xlsx');
