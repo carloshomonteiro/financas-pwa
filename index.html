@@ -201,6 +201,13 @@ table.tx-table .split-badge { display:inline-block; background:var(--line); colo
 <div id="historico-view"></div>
 </div>
 </div>
+<div id="modal-acertolink" class="hidden" style="position:fixed;inset:0;background:rgba(0,0,0,.7);z-index:21;display:flex;align-items:center;justify-content:center;padding:14px">
+<div class="card" style="width:100%;max-width:460px;max-height:88vh;overflow-y:auto">
+<div class="row"><div class="label">Vincular divisão a uma transação</div><button class="btn-sm" id="btn-close-acertolink">✕ Fechar</button></div>
+<div class="msg">Escolha a transação original (a "mãe") — a divisão será adicionada nela com o valor final do item do acerto.</div>
+<div id="acertolink-list" style="margin-top:8px"></div>
+</div>
+</div>
 <div id="modal-linksplit" class="hidden" style="position:fixed;inset:0;background:rgba(0,0,0,.7);z-index:20;display:flex;align-items:center;justify-content:center;padding:14px">
 <div class="card" style="width:100%;max-width:460px;max-height:88vh;overflow-y:auto">
 <div class="row"><div class="label">Vincular a uma divisão</div><button class="btn-sm" id="btn-close-linksplit">✕ Fechar</button></div>
@@ -953,7 +960,7 @@ await sb.from('acerto_emails').update({status:'descartado'}).eq('id',id);
 const a=ACERTO_EMAILS.find(x=>x.id===id);if(a)a.status='descartado';
 renderAcertoEmails();
 };
-function acertoRow(group,idx,titulo,sub,valorDela,valorFinal,incluido){
+function acertoRow(group,idx,titulo,sub,valorDela,valorFinal,incluido,extra){
 return `<div style="margin-top:10px;padding:10px;border:1px solid var(--line);border-radius:8px">
 <div style="display:flex;gap:10px;align-items:flex-start">
 <input type="checkbox" class="ac-inc" data-g="${group}" data-i="${idx}" ${incluido?'checked':''} onchange="recalcAcerto()" style="margin-top:2px;width:auto">
@@ -963,6 +970,7 @@ return `<div style="margin-top:10px;padding:10px;border:1px solid var(--line);bo
 <span class="dim mono" style="font-size:11px">${valorDela!=null?'no relatório: '+fmt(valorDela):''}</span>
 <input type="number" step="0.01" class="ac-final mono" data-g="${group}" data-i="${idx}" value="${Number(valorFinal).toFixed(2)}" style="width:110px;margin-top:0;text-align:right;flex:none" oninput="recalcAcerto()">
 </div>
+${extra||''}
 </div>`;
 }
 function renderAcerto(){
@@ -988,7 +996,12 @@ if(dv<=Math.max(1,A.valorNum*0.02)){A.dup=true;B.dup=true;}
 }
 }
 let h='<div class="msg" style="margin-top:10px">Lista única em ordem cronológica. Valor cinza = o que veio no relatório; campo editável = valor final. Itens com <span style="color:var(--red)">⚠</span> têm valor e data próximos de outro item — confira se não é duplicidade. <b>Nada vem pré-selecionado: marque o checkbox de cada item para incluí-lo no acerto</b> (depois de conferir/ajustar o valor) — só os marcados entram nos totais e no relatório.</div>';
-h+=entries.map(e=>acertoRow(e.g,e.i,(e.dup?'<span style="color:var(--red)">⚠</span> ':'')+e.titulo+' '+TAGS[e.g],e.sub,e.valorDela,e.valorFinal,false)).join('');
+h+=entries.map(e=>{
+let extra='';
+if(e.g==='d')extra=`<div style="margin-top:8px"><button class="btn-sm" id="ac-act-d-${e.i}" onclick="acertoLinkTx(${e.i})">🔗 Vincular a uma transação do período</button></div>`;
+if(e.g==='x')extra=`<div style="margin-top:8px"><button class="btn-sm" id="ac-act-x-${e.i}" onclick="acertoCriarDespesa(${e.i})">➕ Lançar como despesa no período</button></div>`;
+return acertoRow(e.g,e.i,(e.dup?'<span style="color:var(--red)">⚠</span> ':'')+e.titulo+' '+TAGS[e.g],e.sub,e.valorDela,e.valorFinal,false,extra);
+}).join('');
 h+=`<div style="margin-top:14px;padding-top:10px;border-top:1px solid var(--line)">
 <div class="row" style="font-size:13px"><span>${a.pessoa} me deve</span><span class="mono green" id="ac-tot-recebe">—</span></div>
 <div class="row" style="font-size:13px;margin-top:4px"><span>Eu devo</span><span class="mono red" id="ac-tot-devo">—</span></div>
@@ -998,6 +1011,48 @@ h+=`<div style="margin-top:14px;padding-top:10px;border-top:1px solid var(--line
 $('acerto-area').innerHTML=h;
 recalcAcerto();
 }
+window.acertoCriarDespesa=async(i)=>{
+const it=ACERTO?.euDevo?.[i];if(!it)return;
+const inp=document.querySelector(`.ac-final[data-g="x"][data-i="${i}"]`);
+const valor=Math.abs(Number(inp?.value||it.valor));
+if(!valor)return;
+if(!confirm(`Lançar despesa de ${fmt(valor)} — "${it.descricao}" (pago por ${ACERTO.pessoa}, acertado na divisão)?`))return;
+const{error}=await sb.from('transactions').insert({desc:it.descricao+' (pago por '+ACERTO.pessoa+')',value:valor,type:'expense',category:'Outros',date:it.data||new Date().toISOString().slice(0,10),source:'acerto',payment_method:'Acerto '+ACERTO.pessoa,validated:true});
+const btn=document.getElementById('ac-act-x-'+i);
+if(error){alert('Erro: '+error.message);return;}
+if(btn){btn.textContent='✓ Lançada no período';btn.disabled=true;}
+};
+window.acertoLinkTx=(i)=>{
+const it=ACERTO?.soDela?.[i];if(!it)return;
+const candidatos=TX.filter(t=>!t.deleted&&t.type==='expense').map(t=>{
+const sim=descSim(t.desc,it.descricao);
+const dd=(it.data&&t.date)?Math.abs((new Date(t.date+'T12:00:00')-new Date(it.data+'T12:00:00'))/86400000):999;
+return{t,score:sim*2+(dd<=6?1:0)-Math.min(dd,60)/100};
+}).sort((a,b)=>b.score-a.score).slice(0,12);
+$('acertolink-list').innerHTML=candidatos.map(cd=>{
+const sp=SPLITS[cd.t.id]||[];
+const spInfo=sp.length?` · já tem ${sp.length} divisão(ões)`:'';
+return `<div class="row" style="font-size:12px;margin-top:8px;align-items:center;gap:6px">
+<span style="flex:1;min-width:0"><b>${cd.t.desc}</b><br><span class="dim">${(cd.t.date||'').split('-').reverse().join('/')} · ${fmt(cd.t.value)}${spInfo}</span></span>
+<button class="btn-sm" onclick="acertoLinkTxConfirm(${i},'${cd.t.id}')">Vincular</button>
+</div>`;
+}).join('')||'<div class="msg">Nenhuma despesa encontrada.</div>';
+$('modal-acertolink').classList.remove('hidden');
+};
+window.acertoLinkTxConfirm=async(i,txId)=>{
+const it=ACERTO?.soDela?.[i];if(!it)return;
+const inp=document.querySelector(`.ac-final[data-g="d"][data-i="${i}"]`);
+const valor=Math.abs(Number(inp?.value||it.valor));
+const personId=$('acerto-pessoa').value;
+const{data:ins,error}=await sb.from('transaction_splits').insert({transaction_id:txId,person_id:personId,amount:valor}).select('*,people(name)');
+$('modal-acertolink').classList.add('hidden');
+if(error){alert('Erro: '+error.message);return;}
+if(!SPLITS[txId])SPLITS[txId]=[];
+if(ins&&ins.length)SPLITS[txId].push(ins[0]);
+const btn=document.getElementById('ac-act-d-'+i);
+if(btn){btn.textContent='✓ Divisão vinculada à transação';btn.disabled=true;}
+};
+$('btn-close-acertolink').onclick=()=>$('modal-acertolink').classList.add('hidden');
 window.recalcAcerto=()=>{
 let recebe=0,devo=0;
 document.querySelectorAll('.ac-inc').forEach(chk=>{
