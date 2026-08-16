@@ -1299,16 +1299,32 @@ const allSplits=Object.entries(SPLITS).flatMap(([tid,arr])=>arr.map(s=>({...s,pa
 const linked=allSplits.filter(s=>s.paid_tx_id===txId);
 const unpaid=allSplits.filter(s=>!s.paid_tx_id).sort((a,b)=>(b.parent.date||'').localeCompare(a.parent.date||''));
 $('linksplit-atual').innerHTML=linked.length?'<div class="label" style="margin-top:8px">Já vinculado a:</div>'+linked.map(s=>`<div class="row" style="font-size:12px;margin-top:6px"><span>${s.people?.name||'?'} — ${fmt(s.amount)} <span class="dim">(${s.parent.desc}, ${(s.parent.date||'').split('-').reverse().join('/')})</span></span><button class="btn-sm" style="color:var(--red)" onclick="unlinkSplit('${s.id}')">Desvincular</button></div>`).join(''):'';
-// vínculo em lote por pessoa: o pagamento do acerto quita todas as divisões em aberto de uma vez
-const porPessoa={};
-unpaid.forEach(s=>{const k=s.person_id||'?';if(!porPessoa[k])porPessoa[k]={name:s.people?.name||'?',ids:[],total:0};porPessoa[k].ids.push(s.id);porPessoa[k].total+=Number(s.amount);});
-const bulk=Object.entries(porPessoa).map(([pid,g])=>{
+// vínculo em lote por pessoa E ciclo (11→10): o Pix do acerto quita o pacote do ciclo fechado
+function cicloDe(dateStr){
+if(!dateStr)return{key:'sem-data',label:'sem data'};
+const[y,m,d]=dateStr.split('-').map(Number);
+const f=d>=11?new Date(y,m-1,11):new Date(y,m-2,11);
+const t=new Date(f.getFullYear(),f.getMonth()+1,10);
+const iso=x=>new Date(x.getTime()-x.getTimezoneOffset()*60000).toISOString().slice(0,10);
+return{key:iso(f),label:iso(f).split('-').reverse().join('/').slice(0,5)+'→'+iso(t).split('-').reverse().join('/').slice(0,5)};
+}
+window.__LINK_GROUPS={};
+const grupos={};
+unpaid.forEach(s=>{
+const cic=cicloDe(s.parent.date);
+const k=(s.person_id||'?')+'|'+cic.key;
+if(!grupos[k])grupos[k]={name:s.people?.name||'?',ciclo:cic.label,cicloKey:cic.key,ids:[],total:0};
+grupos[k].ids.push(s.id);grupos[k].total+=Number(s.amount);
+});
+const gList=Object.values(grupos).sort((a,b)=>a.name.localeCompare(b.name,'pt-BR')||b.cicloKey.localeCompare(a.cicloKey));
+window.__LINK_GROUPS=gList;
+const bulk=gList.map((g,gi)=>{
 const diff=g.total-Number(tx.value);
 const diffNote=Math.abs(diff)<0.01?'<span class="green" style="font-size:10px">soma igual ao recebido ✓</span>':`<span class="dim" style="font-size:10px">recebido ${fmt(tx.value)} · diferença ${fmt(diff)}</span>`;
 return `<div style="margin-top:8px;padding:8px;border:1px solid var(--line);border-radius:8px">
-<div class="row" style="font-size:12px"><b>Acerto completo de ${g.name}</b><span class="mono">${g.ids.length} divisões · ${fmt(g.total)}</span></div>
+<div class="row" style="font-size:12px"><b>${g.name} · ciclo ${g.ciclo}</b><span class="mono">${g.ids.length} divisões · ${fmt(g.total)}</span></div>
 <div style="margin-top:2px">${diffNote}</div>
-<button class="btn-sm" style="margin-top:6px;color:var(--green);border-color:var(--green)" onclick="linkSplitAll('${txId}','${pid}')">✓ Vincular todas de ${g.name}</button>
+<button class="btn-sm" style="margin-top:6px;color:var(--green);border-color:var(--green)" onclick="linkSplitAll('${txId}',${gi})">✓ Vincular estas ${g.ids.length}</button>
 </div>`;
 }).join('');
 $('linksplit-list').innerHTML='<div class="label" style="margin-top:4px">Divisões em aberto ('+fmt(tx.value)+' recebidos):</div>'+(unpaid.length?bulk+'<div class="msg" style="margin-top:8px">Ou vincule individualmente:</div>'+unpaid.map(s=>{
@@ -1320,12 +1336,11 @@ return `<div class="row" style="font-size:12px;margin-top:6px;align-items:center
 }).join(''):'<div class="msg">Nenhuma divisão em aberto. Se a transação original ainda não chegou, valide este recebimento como Interna e vincule depois.</div>');
 modal.classList.remove('hidden');
 };
-window.linkSplitAll=async(txId,personId)=>{
-const allSplits=Object.entries(SPLITS).flatMap(([tid,arr])=>arr.map(s=>({...s,parent:TX.find(t=>t.id===tid)}))).filter(s=>s.parent&&!s.parent.deleted&&!s.paid_tx_id&&s.person_id===personId);
-if(!allSplits.length)return;
-const total=allSplits.reduce((s,x)=>s+Number(x.amount),0);
-if(!confirm(`Vincular ${allSplits.length} divisões (total ${fmt(total)}) a este recebimento? Todas ficam marcadas como pagas e a transação vira Interna.`))return;
-await sb.from('transaction_splits').update({paid_tx_id:txId}).in('id',allSplits.map(s=>s.id));
+window.linkSplitAll=async(txId,gi)=>{
+const g=(window.__LINK_GROUPS||[])[gi];
+if(!g||!g.ids.length)return;
+if(!confirm(`Vincular as ${g.ids.length} divisões de ${g.name} do ciclo ${g.ciclo} (total ${fmt(g.total)}) a este recebimento? Todas ficam marcadas como pagas e a transação vira Interna.`))return;
+await sb.from('transaction_splits').update({paid_tx_id:txId}).in('id',g.ids);
 await sb.from('transactions').update({internal:true}).eq('id',txId);
 $('modal-linksplit').classList.add('hidden');
 await load();
