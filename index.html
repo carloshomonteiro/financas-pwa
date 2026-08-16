@@ -113,6 +113,12 @@ table.tx-table .split-badge { display:inline-block; background:var(--line); colo
 <div class="row" style="gap:8px;margin-top:8px;align-items:center">
 <span class="label" style="margin:0;font-size:10px">Divisão:</span>
 <select id="f-split" style="margin-top:0;flex:1"></select>
+<span class="label" style="margin:0;font-size:10px">Internas:</span>
+<select id="f-internal" style="margin-top:0;flex:1">
+<option value="">Mostrar</option>
+<option value="hide">Ocultar</option>
+<option value="only">Só internas</option>
+</select>
 </div>
 <div class="msg" id="split-summary" style="margin-top:4px"></div>
 <div class="tx-scroll" id="tx-table"></div>
@@ -307,12 +313,12 @@ const $=id=>document.getElementById(id);
 const fmt=n=>'R$ '+Number(n).toLocaleString('pt-BR',{minimumFractionDigits:2});
 const hoje=()=>new Date().toISOString().slice(0,10);
 let TX=[],GOALS={},FC=[],INC=[],PEOPLE=[],SPLITS={},AUDIT=[],PENDING=[],INVESTMENTS=[],BILLS=[],SNAPSHOTS=[],ACERTO_EMAILS=[],CDI_PROMISE=null,SHOW_INACTIVE_INV=false,form={type:'expense',category:'Outros',nature:'variavel'};
-function freshFilters(){return{desc:'',date:{from:'',to:''},value:{min:'',max:''},saldo:{min:'',max:''},type:new Set(),nature:new Set(),category:new Set(),payment_method:new Set(),split:''};}
+function freshFilters(){return{desc:'',date:{from:'',to:''},value:{min:'',max:''},saldo:{min:'',max:''},type:new Set(),nature:new Set(),category:new Set(),payment_method:new Set(),split:'',internal:''};}
 let FILTERS=freshFilters();
 let SORT={key:'date',dir:'desc'};
 let CURRENT_MTX=[];
 function hasActiveFilters(){
-return !!(FILTERS.desc||FILTERS.date.from||FILTERS.date.to||FILTERS.value.min!==''||FILTERS.value.max!==''||FILTERS.saldo.min!==''||FILTERS.saldo.max!==''||FILTERS.type.size||FILTERS.nature.size||FILTERS.category.size||FILTERS.payment_method.size||FILTERS.split);
+return !!(FILTERS.desc||FILTERS.date.from||FILTERS.date.to||FILTERS.value.min!==''||FILTERS.value.max!==''||FILTERS.saldo.min!==''||FILTERS.saldo.max!==''||FILTERS.type.size||FILTERS.nature.size||FILTERS.category.size||FILTERS.payment_method.size||FILTERS.split||FILTERS.internal);
 }
 function applyFilters(rows){
 return rows.filter(t=>{
@@ -330,6 +336,8 @@ if(FILTERS.nature.size&&!FILTERS.nature.has(t.nature||'variavel'))return false;
 if(FILTERS.category.size&&!FILTERS.category.has(t.category))return false;
 if(FILTERS.payment_method.size&&!FILTERS.payment_method.has(t.payment_method||''))return false;
 if(FILTERS.split){const sp=SPLITS[t.id]||[];if(FILTERS.split==='none'){if(sp.length)return false;}else if(!sp.some(s=>s.person_id===FILTERS.split))return false;}
+if(FILTERS.internal==='hide'&&t.internal)return false;
+if(FILTERS.internal==='only'&&!t.internal)return false;
 return true;
 });
 }
@@ -516,6 +524,8 @@ CURRENT_MTX=mtx;
 // filtro por divisão (pessoa)
 const fs=$('f-split');
 if(fs){fs.innerHTML='<option value="">Todas</option><option value="none"'+(FILTERS.split==='none'?' selected':'')+'>Sem divisão</option>'+PEOPLE.map(p=>`<option value="${p.id}"${FILTERS.split===p.id?' selected':''}>${p.name}</option>`).join('');fs.onchange=()=>{FILTERS.split=fs.value;render();};}
+const fi=$('f-internal');
+if(fi){fi.value=FILTERS.internal;fi.onchange=()=>{FILTERS.internal=fi.value;render();};}
 const ss=$('split-summary');
 if(ss){
 if(FILTERS.split&&FILTERS.split!=='none'){
@@ -793,7 +803,7 @@ sumSplitDiscount+=(Number(t.value)-sal);
 h+=`<tr>
 <td class="mono dim">${(t.date||'').split('-').reverse().join('/')}</td>
 <td><input class="row-edit-text desc-input" data-id="${t.id}" data-f="desc" value="${descVal}">${splitBadges?'<br>'+splitBadges:''}</td>
-<td class="mono ${t.type==='income'?'green':'red'}">${fmt(t.value)}</td>
+<td class="mono ${t.internal?'':(t.type==='income'?'green':'red')}" ${t.internal?'style="color:#e8e8e8"':''}>${fmt(t.value)}${t.internal?'<br><span class="dim" style="font-size:9px">interna</span>':''}</td>
 <td class="mono dim">${fmt(sal)}</td>
 <td><select data-id="${t.id}" data-f="type" class="row-edit"><option value="expense" ${t.type==='expense'?'selected':''}>Desp.</option><option value="income" ${t.type==='income'?'selected':''}>Rec.</option></select></td>
 <td><select data-id="${t.id}" data-f="nature" class="row-edit"><option value="fixa" ${t.nature==='fixa'?'selected':''}>Fixa</option><option value="variavel" ${t.nature!=='fixa'?'selected':''}>Var.</option></select></td>
