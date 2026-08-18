@@ -809,14 +809,17 @@ const dRest=dTot-dPass;
 const gasto=gastoLiquido(PERIOD.from,ref);
 const media=dPass>0?gasto/dPass:0;
 const projecao=media*dTot;
+// dados confiáveis só a partir do ciclo 11/07→10/08 (início do controle validado)
+const RITMO_MIN='2026-07-11';
 // mesmo ponto do ciclo anterior
 const prev=shiftPeriodStr(PERIOD.from,-1);
 const prevRef=addDaysStr(prev.from,dPass-1);
-const gastoPrev=gastoLiquido(prev.from,prevRef);
-// média dos ciclos anteriores no mesmo ponto (até 11 ciclos com dados)
+const gastoPrev=prev.from>=RITMO_MIN?gastoLiquido(prev.from,prevRef):0;
+// média dos ciclos anteriores no mesmo ponto (só ciclos validados)
 let somaCiclos=0,nCiclos=0;
 for(let k=1;k<=11;k++){
 const pk=shiftPeriodStr(PERIOD.from,-k);
+if(pk.from<RITMO_MIN)continue;
 const g=gastoLiquido(pk.from,addDaysStr(pk.from,dPass-1));
 if(g>0){somaCiclos+=g;nCiclos++;}
 }
