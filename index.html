@@ -806,10 +806,10 @@ const encerrado=hoje>PERIOD.to;
 const ref=encerrado?PERIOD.to:hoje;
 const dPass=Math.round((new Date(ref+'T12:00:00')-new Date(PERIOD.from+'T12:00:00'))/86400000)+1;
 const dRest=dTot-dPass;
-const gasto=gastoLiquido(PERIOD.from,ref);
+// gasto do período inteiro: o que está registrado já é compromisso (parcelas futuras contam)
+const gasto=gastoLiquido(PERIOD.from,PERIOD.to);
 const media=dPass>0?Math.round(gasto/dPass*100)/100:0;
-const comprometido=encerrado?0:gastoLiquido(addDaysStr(ref,1),PERIOD.to);
-const projecao=Math.max(Math.round(media*dTot*100)/100,gasto+comprometido);
+const projecao=Math.round(media*dTot*100)/100;
 // dados confiáveis só a partir do ciclo 11/07→10/08 (início do controle validado)
 const RITMO_MIN='2026-07-11';
 // mesmo ponto do ciclo anterior
@@ -848,9 +848,8 @@ const pctDias=Math.min(100,dPass/dTot*100);
 el.innerHTML=`
 <div class="row" style="font-size:13px"><span>Dia <b>${dPass}</b> de ${dTot}${encerrado?' (encerrado)':''}</span><span class="dim">${encerrado?'':'restam '+dRest+' dias'}</span></div>
 <div class="bar-track" style="margin-top:4px"><div class="bar-fill" style="width:${pctDias.toFixed(0)}%"></div></div>
-<div class="row" style="font-size:13px;margin-top:10px"><span class="dim">Gasto até ${encerrado?'o fim':'hoje'} (líquido)</span><span class="mono red">${fmt(gasto)}</span></div>
+<div class="row" style="font-size:13px;margin-top:10px"><span class="dim">Gasto ${encerrado?'do período':'até hoje'} (líquido, incl. comprometido)</span><span class="mono red">${fmt(gasto)}</span></div>
 <div class="row" style="font-size:13px;margin-top:4px"><span class="dim">Média por dia</span><span class="mono">${fmt(media)}</span></div>
-${(!encerrado&&comprometido>0)?`<div class="row" style="font-size:13px;margin-top:4px"><span class="dim">Já comprometido (lançamentos futuros no período)</span><span class="mono">${fmt(comprometido)}</span></div>`:''}
 ${encerrado?'':`<div class="row" style="font-size:13px;margin-top:4px"><span class="dim">Projeção de fechamento</span><span class="mono gold">${fmt(projecao)}</span></div>`}
 <div style="margin-top:10px;padding-top:8px;border-top:1px solid var(--line)">
 <div class="row" style="font-size:13px"><span class="dim">Ciclo passado, mesmo ponto (dia ${dPass})</span><span class="mono">${gastoPrev>0?fmt(gastoPrev):'—'} ${fmtDelta(dPrev)}</span></div>
