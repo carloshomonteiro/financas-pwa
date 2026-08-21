@@ -783,8 +783,14 @@ await sb.from('audit_log').insert({transaction_id:a.transaction_id,action:'resto
 load();
 };
 function saldoOf(t){const sp=SPLITS[t.id]||[];const splitTotal=sp.reduce((s,x)=>s+Number(x.amount),0);return Number(t.value)-splitTotal;}
-function gastoLiquido(from,to){
-return TX.filter(t=>!t.deleted&&t.validated!==false&&!t.internal&&t.type==='expense'&&(t.date||'')>=from&&(t.date||'')<=to).reduce((s,t)=>s+Math.max(0,saldoOf(t)),0);
+function gastoLiquido(from,to,nature){
+return TX.filter(t=>{
+if(t.deleted||t.validated===false||t.internal||t.type!=='expense')return false;
+if((t.date||'')<from||(t.date||'')>to)return false;
+if(nature==='fixa'&&t.nature!=='fixa')return false;
+if(nature==='var'&&t.nature==='fixa')return false;
+return true;
+}).reduce((s,t)=>s+Math.max(0,saldoOf(t)),0);
 }
 function shiftPeriodStr(fromStr,months){
 const[y,m,d]=fromStr.split('-').map(Number);
@@ -808,20 +814,22 @@ const dPass=Math.round((new Date(ref+'T12:00:00')-new Date(PERIOD.from+'T12:00:0
 const dRest=dTot-dPass;
 // gasto do período inteiro: o que está registrado já é compromisso (parcelas futuras contam)
 const gasto=gastoLiquido(PERIOD.from,PERIOD.to);
-const media=dPass>0?Math.round(gasto/dPass*100)/100:0;
-const projecao=Math.round(media*dTot*100)/100;
+const gastoFix=gastoLiquido(PERIOD.from,PERIOD.to,'fixa');
+const gastoVar=gastoLiquido(PERIOD.from,PERIOD.to,'var');
+const mediaVar=dPass>0?Math.round(gastoVar/dPass*100)/100:0;
+const projecao=Math.round((gastoFix+mediaVar*dTot)*100)/100;
 // dados confiáveis só a partir do ciclo 11/07→10/08 (início do controle validado)
 const RITMO_MIN='2026-07-11';
 // mesmo ponto do ciclo anterior
 const prev=shiftPeriodStr(PERIOD.from,-1);
 const prevRef=addDaysStr(prev.from,dPass-1);
-const gastoPrev=prev.from>=RITMO_MIN?gastoLiquido(prev.from,prevRef):0;
+const gastoPrev=prev.from>=RITMO_MIN?gastoLiquido(prev.from,prevRef,'var'):0;
 // média dos ciclos anteriores no mesmo ponto (só ciclos validados)
 let somaCiclos=0,nCiclos=0;
 for(let k=1;k<=11;k++){
 const pk=shiftPeriodStr(PERIOD.from,-k);
 if(pk.from<RITMO_MIN)continue;
-const g=gastoLiquido(pk.from,addDaysStr(pk.from,dPass-1));
+const g=gastoLiquido(pk.from,addDaysStr(pk.from,dPass-1),'var');
 if(g>0){somaCiclos+=g;nCiclos++;}
 }
 const mediaCiclos=nCiclos?somaCiclos/nCiclos:null;
@@ -832,16 +840,16 @@ const cls=p<=0?'green':'red';
 const arrow=p<=0?'▼':'▲';
 return`<span class="${cls} mono">${arrow} ${Math.abs(p).toFixed(0)}%</span>`;
 };
-const dPrev=pct(gasto,gastoPrev);
-const dMed=mediaCiclos!=null?pct(gasto,mediaCiclos):null;
+const dPrev=pct(gastoVar,gastoPrev);
+const dMed=mediaCiclos!=null?pct(gastoVar,mediaCiclos):null;
 // veredito
 let veredito='';
 if(dPrev==null&&dMed==null)veredito='<div class="msg">Ainda sem ciclos anteriores pra comparar — o veredito aparece a partir do próximo ciclo.</div>';
 else{
 const abaixo=(dPrev==null||dPrev<=0)&&(dMed==null||dMed<=0);
 const acima=(dPrev==null||dPrev>5)&&(dMed==null||dMed>5);
-if(abaixo)veredito=`<div style="margin-top:10px;padding:8px;border:1px solid var(--green);border-radius:8px;font-size:13px"><span class="green">✓ Bom caminho:</span> você está gastando ${dPrev!=null?Math.abs(dPrev).toFixed(0)+'% menos que no mesmo ponto do ciclo passado':'abaixo da sua média'} — mantendo esse ritmo, o fechamento fica em ~${fmt(projecao)}.</div>`;
-else if(acima)veredito=`<div style="margin-top:10px;padding:8px;border:1px solid var(--red);border-radius:8px;font-size:13px"><span class="red">⚠ Vale segurar:</span> o ritmo está acima do histórico — se continuar assim, o ciclo fecha em ~${fmt(projecao)}. Cada dia a ~${fmt(media)} pesa.</div>`;
+if(abaixo)veredito=`<div style="margin-top:10px;padding:8px;border:1px solid var(--green);border-radius:8px;font-size:13px"><span class="green">✓ Bom caminho:</span> suas despesas variáveis estão ${dPrev!=null?Math.abs(dPrev).toFixed(0)+'% menores que no mesmo ponto do ciclo passado':'abaixo da sua média'} — mantendo esse ritmo, o fechamento fica em ~${fmt(projecao)}.</div>`;
+else if(acima)veredito=`<div style="margin-top:10px;padding:8px;border:1px solid var(--red);border-radius:8px;font-size:13px"><span class="red">⚠ Vale segurar:</span> as variáveis estão acima do seu histórico — se continuar assim, o ciclo fecha em ~${fmt(projecao)}. Cada dia a ~${fmt(mediaVar)} de variáveis pesa.</div>`;
 else veredito=`<div style="margin-top:10px;padding:8px;border:1px solid var(--line);border-radius:8px;font-size:13px">Ritmo próximo do seu histórico — fechamento projetado em ~${fmt(projecao)}.</div>`;
 }
 const pctDias=Math.min(100,dPass/dTot*100);
@@ -849,11 +857,13 @@ el.innerHTML=`
 <div class="row" style="font-size:13px"><span>Dia <b>${dPass}</b> de ${dTot}${encerrado?' (encerrado)':''}</span><span class="dim">${encerrado?'':'restam '+dRest+' dias'}</span></div>
 <div class="bar-track" style="margin-top:4px"><div class="bar-fill" style="width:${pctDias.toFixed(0)}%"></div></div>
 <div class="row" style="font-size:13px;margin-top:10px"><span class="dim">Gasto ${encerrado?'do período':'até hoje'} (líquido, incl. comprometido)</span><span class="mono red">${fmt(gasto)}</span></div>
-<div class="row" style="font-size:13px;margin-top:4px"><span class="dim">Média por dia</span><span class="mono">${fmt(media)}</span></div>
-${encerrado?'':`<div class="row" style="font-size:13px;margin-top:4px"><span class="dim">Projeção de fechamento</span><span class="mono gold">${fmt(projecao)}</span></div>`}
+<div class="row" style="font-size:12px;margin-top:4px"><span class="dim">· Fixas</span><span class="mono dim">${fmt(gastoFix)}</span></div>
+<div class="row" style="font-size:12px;margin-top:2px"><span class="dim">· Variáveis</span><span class="mono">${fmt(gastoVar)}</span></div>
+<div class="row" style="font-size:13px;margin-top:8px"><span class="dim">Média por dia (variáveis)</span><span class="mono">${fmt(mediaVar)}</span></div>
+${encerrado?'':`<div class="row" style="font-size:13px;margin-top:4px"><span class="dim">Projeção de fechamento (fixas + ritmo das variáveis)</span><span class="mono gold">${fmt(projecao)}</span></div>`}
 <div style="margin-top:10px;padding-top:8px;border-top:1px solid var(--line)">
-<div class="row" style="font-size:13px"><span class="dim">Ciclo passado, mesmo ponto (dia ${dPass})</span><span class="mono">${gastoPrev>0?fmt(gastoPrev):'—'} ${fmtDelta(dPrev)}</span></div>
-<div class="row" style="font-size:13px;margin-top:4px"><span class="dim">Média dos últimos ${nCiclos||0} ciclos, mesmo ponto</span><span class="mono">${mediaCiclos!=null?fmt(mediaCiclos):'—'} ${fmtDelta(dMed)}</span></div>
+<div class="row" style="font-size:13px"><span class="dim">Variáveis · ciclo passado, mesmo ponto (dia ${dPass})</span><span class="mono">${gastoPrev>0?fmt(gastoPrev):'—'} ${fmtDelta(dPrev)}</span></div>
+<div class="row" style="font-size:13px;margin-top:4px"><span class="dim">Variáveis · média dos últimos ${nCiclos||0} ciclos, mesmo ponto</span><span class="mono">${mediaCiclos!=null?fmt(mediaCiclos):'—'} ${fmtDelta(dMed)}</span></div>
 </div>
 ${veredito}`;
 }
