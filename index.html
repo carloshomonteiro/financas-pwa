@@ -135,7 +135,8 @@ table.tx-table .split-badge { display:inline-block; background:var(--line); colo
 <div id="inc-view"></div><div id="inc-edit" class="hidden"></div>
 </div>
 <div class="card">
-<div class="row"><div class="label">Previsão de gastos fixos (mensal)</div><button class="logout" id="btn-fc-edit">editar</button></div>
+<div class="row"><div class="label">Controle mensal de contas fixas</div><button class="logout" id="btn-fc-edit">editar plano</button></div>
+<div class="msg" style="margin-top:0">Checklist do ciclo selecionado: o sistema detecta o pagamento nas transações do período e sugere — confirme com um toque, ou marque manualmente. Conta nova no meio do ano? Use "editar plano" que ela entra no controle a partir deste ciclo.</div>
 <div id="fc-view"></div><div id="fc-edit" class="hidden"></div>
 </div>
 </div>
@@ -316,7 +317,7 @@ const sb=createClient(SB_URL,SB_KEY);
 const $=id=>document.getElementById(id);
 const fmt=n=>'R$ '+Number(n).toLocaleString('pt-BR',{minimumFractionDigits:2});
 const hoje=()=>new Date().toISOString().slice(0,10);
-let TX=[],GOALS={},FC=[],INC=[],PEOPLE=[],SPLITS={},AUDIT=[],PENDING=[],INVESTMENTS=[],BILLS=[],SNAPSHOTS=[],ACERTO_EMAILS=[],CDI_PROMISE=null,SHOW_INACTIVE_INV=false,form={type:'expense',category:'Outros',nature:'variavel'};
+let TX=[],GOALS={},FC=[],INC=[],PEOPLE=[],SPLITS={},AUDIT=[],PENDING=[],INVESTMENTS=[],BILLS=[],SNAPSHOTS=[],ACERTO_EMAILS=[],FIXED_CHECKS=[],CDI_PROMISE=null,SHOW_INACTIVE_INV=false,form={type:'expense',category:'Outros',nature:'variavel'};
 function freshFilters(){return{desc:'',date:{from:'',to:''},value:{min:'',max:''},saldo:{min:'',max:''},type:new Set(),nature:new Set(),category:new Set(),payment_method:new Set(),split:'',internal:''};}
 let FILTERS=freshFilters();
 let SORT={key:'date',dir:'desc'};
@@ -488,7 +489,7 @@ setTimeout(()=>ss.classList.add('hidden'),15000);
 }
 $('btn-sync').onclick=doSync;
 async function load(){
-const[t,g,f,ic,p,sp,c,au,inv,bl,snp,ace]=await Promise.all([
+const[t,g,f,ic,p,sp,c,au,inv,bl,snp,ace,fck]=await Promise.all([
 sb.from('transactions').select('*').order('date',{ascending:false}).limit(3000),
 sb.from('goals').select('*'),
 sb.from('forecasts').select('*'),
@@ -501,6 +502,7 @@ sb.from('investments').select('*').order('balance',{ascending:false}),
 sb.from('credit_card_bills').select('*').order('due_date',{ascending:false}),
 sb.from('investment_snapshots').select('*').order('snap_date'),
 sb.from('acerto_emails').select('*').order('email_date',{ascending:false}),
+sb.from('fixed_checks').select('*'),
 ]);
 TX=t.data||[];GOALS={};(g.data||[]).forEach(x=>GOALS[x.category]=Number(x.amount));
 FC=f.data||[];INC=ic.data||[];PEOPLE=p.data||[];
@@ -510,6 +512,7 @@ INVESTMENTS=inv.data||[];
 BILLS=bl.data||[];
 SNAPSHOTS=snp.data||[];
 ACERTO_EMAILS=ace.data||[];
+FIXED_CHECKS=fck.data||[];
 PENDING=TX.filter(t=>!t.deleted&&t.validated===false);
 const vc=$('val-count');if(PENDING.length&&MY_ROLE==='owner'){vc.textContent=PENDING.length;vc.classList.remove('hidden');}else{vc.classList.add('hidden');}
 SPLITS={};(sp.data||[]).forEach(s=>{if(!SPLITS[s.transaction_id])SPLITS[s.transaction_id]=[];SPLITS[s.transaction_id].push(s);});
@@ -744,9 +747,65 @@ const incTotal=INC.reduce((s,i)=>s+Number(i.amount),0);
 $('inc-view').innerHTML=INC.length?INC.map(i=>`<div class="row" style="font-size:13px;margin-top:8px"><span>${i.desc}</span><span class="mono green">${fmt(i.amount)}</span></div>`).join('')+`<div class="row" style="font-size:13px;margin-top:12px;padding-top:10px;border-top:1px solid var(--line)"><span><b>Total previsto</b></span><span class="mono green">${fmt(incTotal)}</span></div>`:'<div class="msg">Sem previsão.</div>';
 const fcTotal=FC.reduce((s,f)=>s+Number(f.amount),0);
 const mtx=TX.filter(t=>!t.deleted&&t.validated!==false&&(t.date||'')>=PERIOD.from&&(t.date||'')<=PERIOD.to);
-const fixosPer=mtx.filter(t=>t.type==='expense'&&t.nature==='fixa').reduce((s,t)=>s+Number(t.value),0);
-$('fc-view').innerHTML=FC.length?FC.map(f=>`<div class="row" style="font-size:13px;margin-top:8px"><span>${f.desc}</span><span class="mono dim">${fmt(f.amount)}</span></div>`).join('')+`<div class="row" style="font-size:13px;margin-top:12px;padding-top:10px;border-top:1px solid var(--line)"><span><b>Total previsto</b></span><span class="mono gold">${fmt(fcTotal)}</span></div><div class="row" style="font-size:13px;margin-top:6px"><span>Fixos lançados</span><span class="mono ${fixosPer>fcTotal?'red':'green'}">${fmt(fixosPer)}</span></div>`:'<div class="msg">Sem previsão.</div>';
+const hoje=new Date(Date.now()-new Date().getTimezoneOffset()*60000).toISOString().slice(0,10);
+let pagoTotal=0,abertoTotal=0,abertoQtd=0;
+const linhas=FC.map((f,i)=>{
+const chk=FIXED_CHECKS.find(k=>k.cycle_from===PERIOD.from&&k.forecast_desc===f.desc);
+if(chk){
+pagoTotal+=Number(chk.valor||0);
+const dif=Number(chk.valor||0)-Number(f.amount);
+const difNote=Math.abs(dif)>0.009?` <span class="dim" style="font-size:10px">(previsto ${fmt(f.amount)})</span>`:'';
+return `<div style="margin-top:10px;padding:8px;border:1px solid var(--green);border-radius:8px">
+<div class="row" style="font-size:13px"><span><span class="green">✓</span> <b>${f.desc}</b></span><span class="mono green">${fmt(chk.valor)}</span></div>
+<div class="row" style="font-size:11px;margin-top:2px"><span class="dim">Pago em ${(chk.paid_date||'').split('-').reverse().join('/')}${chk.tx_id?' · detectado na transação':''}${difNote}</span><button class="btn-sm" onclick="fixedCheckUndo('${chk.id}')">desfazer</button></div>
+</div>`;
 }
+abertoTotal+=Number(f.amount);abertoQtd++;
+// detecção automática: transação do período parecida em descrição ou valor
+let best=null,bestScore=0;
+mtx.filter(t=>t.type==='expense'&&!t.internal).forEach(t=>{
+const sim=descSim(t.desc,f.desc);
+const valClose=Math.abs(Number(t.value)-Number(f.amount))/Math.max(Number(f.amount),1)<=0.15;
+let score=0;
+if(sim>=0.35)score+=sim*2;
+if(valClose)score+=1;
+if(Math.abs(Number(t.value)-Number(f.amount))<0.01)score+=1;
+if(score>bestScore){bestScore=score;best=t;}
+});
+const sugestao=(best&&bestScore>=1)?`<div class="row" style="font-size:11px;margin-top:6px;align-items:center"><span class="dim" style="flex:1">detectado: ${best.desc} · ${(best.date||'').split('-').reverse().join('/')} · <span class="mono">${fmt(best.value)}</span></span><button class="btn-sm" style="color:var(--green);border-color:var(--green)" onclick="fixedCheckConfirm(${i},'${best.id}')">✓ Confirmar</button></div>`:'';
+return `<div style="margin-top:10px;padding:8px;border:1px solid var(--line);border-radius:8px">
+<div class="row" style="font-size:13px"><span><b>${f.desc}</b></span><span class="mono dim">previsto ${fmt(f.amount)}</span></div>
+${sugestao}
+<div class="row" style="font-size:11px;margin-top:6px;gap:6px;align-items:center">
+<input type="number" step="0.01" id="fcv-val-${i}" value="${Number(f.amount).toFixed(2)}" class="mono" style="width:90px;margin-top:0;text-align:right">
+<input type="date" id="fcv-date-${i}" value="${hoje}" style="flex:1;margin-top:0">
+<button class="btn-sm" onclick="fixedCheckPay(${i})">Pago ✓</button>
+</div>
+</div>`;
+}).join('');
+$('fc-view').innerHTML=FC.length?linhas+`<div style="margin-top:12px;padding-top:10px;border-top:1px solid var(--line)">
+<div class="row" style="font-size:13px"><span><b>Previsto no plano</b></span><span class="mono gold">${fmt(fcTotal)}</span></div>
+<div class="row" style="font-size:13px;margin-top:4px"><span>Pago no ciclo</span><span class="mono green">${fmt(pagoTotal)}</span></div>
+<div class="row" style="font-size:13px;margin-top:4px"><span>Em aberto</span><span class="mono ${abertoQtd?'red':'green'}">${abertoQtd?fmt(abertoTotal)+' ('+abertoQtd+')':'✓ tudo pago'}</span></div>
+</div>`:'<div class="msg">Sem plano de contas fixas — use "editar plano" pra criar.</div>';
+}
+window.fixedCheckConfirm=async(i,txId)=>{
+const f=FC[i];const t=TX.find(x=>x.id===txId);
+if(!f||!t)return;
+await sb.from('fixed_checks').insert({cycle_from:PERIOD.from,forecast_desc:f.desc,valor:Number(t.value),paid_date:t.date,tx_id:txId});
+await load();
+};
+window.fixedCheckPay=async(i)=>{
+const f=FC[i];if(!f)return;
+const val=Number(document.getElementById('fcv-val-'+i)?.value||f.amount);
+const dt=document.getElementById('fcv-date-'+i)?.value||new Date().toISOString().slice(0,10);
+await sb.from('fixed_checks').insert({cycle_from:PERIOD.from,forecast_desc:f.desc,valor:val,paid_date:dt});
+await load();
+};
+window.fixedCheckUndo=async(id)=>{
+await sb.from('fixed_checks').delete().eq('id',id);
+await load();
+};
 function renderHistorico(){
 $('historico-view').innerHTML=AUDIT.length?AUDIT.map(a=>{
 const t=a.transactions;
