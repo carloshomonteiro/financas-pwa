@@ -755,36 +755,50 @@ $('inc-view').innerHTML=INC.length?INC.map(i=>`<div class="row" style="font-size
 const fcTotal=FC.reduce((s,f)=>s+Number(f.amount),0);
 const mtx=TX.filter(t=>!t.deleted&&t.validated!==false&&(t.date||'')>=PERIOD.from&&(t.date||'')<=PERIOD.to);
 const hoje=new Date(Date.now()-new Date().getTimezoneOffset()*60000).toISOString().slice(0,10);
-let pagoTotal=0,abertoTotal=0,abertoQtd=0;
+let pagoTotal=0,abertoTotal=0,abertoQtd=0,previstoEfetivo=0;
 const linhas=FC.map((f,i)=>{
 const chk=FIXED_CHECKS.find(k=>k.cycle_from===PERIOD.from&&k.forecast_desc===f.desc);
-if(chk){
-pagoTotal+=Number(chk.valor||0);
-const dif=Number(chk.valor||0)-Number(f.amount);
-const difNote=Math.abs(dif)>0.009?` <span class="dim" style="font-size:10px">(previsto ${fmt(f.amount)})</span>`:'';
-return `<div style="margin-top:10px;padding:8px;border:1px solid var(--green);border-radius:8px">
-<div class="row" style="font-size:13px"><span><span class="green">✓</span> <b>${f.desc}</b></span><span class="mono green">${fmt(chk.valor)}</span></div>
-<div class="row" style="font-size:11px;margin-top:2px"><span class="dim">Pago em ${(chk.paid_date||'').split('-').reverse().join('/')}${chk.tx_id?' · detectado na transação':''}${difNote}</span><button class="btn-sm" onclick="fixedCheckUndo('${chk.id}')">desfazer</button></div>
+const obsHtml=chk&&chk.obs?`<div class="dim" style="font-size:11px;margin-top:2px">📝 ${chk.obs}</div>`:'';
+if(chk&&chk.status==='dispensado'){
+return `<div style="margin-top:10px;padding:8px;border:1px dashed var(--line);border-radius:8px;opacity:.65">
+<div class="row" style="font-size:13px"><span>🚫 <b>${f.desc}</b></span><span class="dim" style="font-size:11px">dispensada neste ciclo</span></div>
+${obsHtml}
+<div class="row" style="margin-top:4px"><span></span><button class="btn-sm" onclick="fixedCheckUndo('${chk.id}')">reativar</button></div>
 </div>`;
 }
-abertoTotal+=Number(f.amount);abertoQtd++;
+if(chk&&chk.status!=='previsto'){
+pagoTotal+=Number(chk.valor||0);
+previstoEfetivo+=Number(chk.valor_previsto??f.amount);
+const dif=Number(chk.valor||0)-Number(chk.valor_previsto??f.amount);
+const difNote=Math.abs(dif)>0.009?` <span class="dim" style="font-size:10px">(previsto ${fmt(chk.valor_previsto??f.amount)})</span>`:'';
+return `<div style="margin-top:10px;padding:8px;border:1px solid var(--green);border-radius:8px">
+<div class="row" style="font-size:13px"><span><span class="green">✓</span> <b>${f.desc}</b></span><span class="mono green">${fmt(chk.valor)}</span></div>
+${obsHtml}
+<div class="row" style="font-size:11px;margin-top:2px"><span class="dim">Pago em ${(chk.paid_date||'').split('-').reverse().join('/')}${chk.tx_id?' · detectado na transação':''}${difNote}</span><span><button class="btn-sm" onclick="fixedCheckEdit(${i})">✏️</button> <button class="btn-sm" onclick="fixedCheckUndo('${chk.id}')">desfazer</button></span></div>
+</div>`;
+}
+// em aberto (sem check ou check 'previsto' com ajuste/observação)
+const previstoCiclo=Number(chk?.valor_previsto??f.amount);
+abertoTotal+=previstoCiclo;abertoQtd++;previstoEfetivo+=previstoCiclo;
 // detecção automática: transação do período parecida em descrição ou valor
 let best=null,bestScore=0;
 mtx.filter(t=>t.type==='expense'&&!t.internal).forEach(t=>{
 const sim=descSim(t.desc,f.desc);
-const valClose=Math.abs(Number(t.value)-Number(f.amount))/Math.max(Number(f.amount),1)<=0.15;
+const valClose=Math.abs(Number(t.value)-previstoCiclo)/Math.max(previstoCiclo,1)<=0.15;
 let score=0;
 if(sim>=0.35)score+=sim*2;
 if(valClose)score+=1;
-if(Math.abs(Number(t.value)-Number(f.amount))<0.01)score+=1;
+if(Math.abs(Number(t.value)-previstoCiclo)<0.01)score+=1;
 if(score>bestScore){bestScore=score;best=t;}
 });
 const detectado=(best&&bestScore>=1);
-const valPre=detectado?Number(best.value).toFixed(2):Number(f.amount).toFixed(2);
+const valPre=detectado?Number(best.value).toFixed(2):previstoCiclo.toFixed(2);
 const datePre=detectado?(best.date||hoje):hoje;
+const ajusteNote=(chk&&chk.valor_previsto!=null&&Math.abs(Number(chk.valor_previsto)-Number(f.amount))>0.009)?` <span class="dim" style="font-size:10px">(plano: ${fmt(f.amount)})</span>`:'';
 const sugestao=detectado?`<div class="dim" style="font-size:11px;margin-top:4px">pré-preenchido da transação: ${best.desc} · ${(best.date||'').split('-').reverse().join('/')}</div>`:'';
 return `<div style="margin-top:10px;padding:8px;border:1px solid var(--line);border-radius:8px">
-<div class="row" style="font-size:13px"><span><b>${f.desc}</b></span><span class="mono dim">previsto ${fmt(f.amount)}</span></div>
+<div class="row" style="font-size:13px"><span><b>${f.desc}</b></span><span class="mono dim">previsto ${fmt(previstoCiclo)}${ajusteNote}</span></div>
+${obsHtml}
 ${sugestao}
 <input type="hidden" id="fcv-tx-${i}" value="${detectado?best.id:''}">
 <div class="row" style="font-size:11px;margin-top:6px;gap:6px;align-items:center">
@@ -795,20 +809,54 @@ ${sugestao}
 <button class="btn-sm" style="color:var(--green);border-color:var(--green);flex:1" onclick="fixedCheckPay(${i})">✓ Confirmar pagamento</button>
 <button class="btn-sm" style="flex:1" onclick="fixedLinkOpen(${i})">🔗 Vincular a transação</button>
 </div>
+<div class="row" style="gap:6px;margin-top:6px">
+<button class="btn-sm" style="flex:1" onclick="fixedCheckEdit(${i})">✏️ Editar previsão/obs</button>
+<button class="btn-sm" style="flex:1;color:var(--red)" onclick="fixedCheckSkip(${i})">🚫 Dispensar neste ciclo</button>
+</div>
 </div>`;
 }).join('');
 $('fc-view').innerHTML=FC.length?linhas+`<div style="margin-top:12px;padding-top:10px;border-top:1px solid var(--line)">
-<div class="row" style="font-size:13px"><span><b>Previsto no plano</b></span><span class="mono gold">${fmt(fcTotal)}</span></div>
+<div class="row" style="font-size:13px"><span><b>Previsto no ciclo</b> <span class="dim" style="font-size:10px">(com ajustes e dispensas)</span></span><span class="mono gold">${fmt(previstoEfetivo)}</span></div>
 <div class="row" style="font-size:13px;margin-top:4px"><span>Pago no ciclo</span><span class="mono green">${fmt(pagoTotal)}</span></div>
 <div class="row" style="font-size:13px;margin-top:4px"><span>Em aberto</span><span class="mono ${abertoQtd?'red':'green'}">${abertoQtd?fmt(abertoTotal)+' ('+abertoQtd+')':'✓ tudo pago'}</span></div>
 </div>`:'<div class="msg">Sem plano de contas fixas — use "editar plano" pra criar.</div>';
 }
+window.fixedCheckSkip=async(i)=>{
+const f=FC[i];if(!f)return;
+if(!confirm(`Dispensar "${f.desc}" neste ciclo? Ela sai do previsto e do em aberto — só neste período.`))return;
+const chk=FIXED_CHECKS.find(k=>k.cycle_from===PERIOD.from&&k.forecast_desc===f.desc);
+if(chk)await sb.from('fixed_checks').update({status:'dispensado'}).eq('id',chk.id);
+else await sb.from('fixed_checks').insert({cycle_from:PERIOD.from,forecast_desc:f.desc,status:'dispensado'});
+await load();
+};
+window.fixedCheckEdit=async(i)=>{
+const f=FC[i];if(!f)return;
+const chk=FIXED_CHECKS.find(k=>k.cycle_from===PERIOD.from&&k.forecast_desc===f.desc);
+const pago=chk&&chk.status==='pago';
+const valAtual=pago?Number(chk.valor):Number(chk?.valor_previsto??f.amount);
+const novoValStr=prompt(pago?'Valor pago (R$):':'Valor previsto neste ciclo (R$):',valAtual.toFixed(2));
+if(novoValStr===null)return;
+const novoVal=Number(novoValStr.replace(',','.'));
+if(isNaN(novoVal)){alert('Valor inválido');return;}
+const novaObs=prompt('Observação (deixe vazio pra limpar):',chk?.obs||'');
+if(novaObs===null)return;
+if(pago){
+await sb.from('fixed_checks').update({valor:novoVal,obs:novaObs||null}).eq('id',chk.id);
+}else if(chk){
+await sb.from('fixed_checks').update({valor_previsto:novoVal,obs:novaObs||null,status:'previsto'}).eq('id',chk.id);
+}else{
+await sb.from('fixed_checks').insert({cycle_from:PERIOD.from,forecast_desc:f.desc,status:'previsto',valor_previsto:novoVal,obs:novaObs||null});
+}
+await load();
+};
 window.fixedCheckPay=async(i)=>{
 const f=FC[i];if(!f)return;
 const val=Number(document.getElementById('fcv-val-'+i)?.value||f.amount);
 const dt=document.getElementById('fcv-date-'+i)?.value||new Date().toISOString().slice(0,10);
 const txId=document.getElementById('fcv-tx-'+i)?.value||null;
-await sb.from('fixed_checks').insert({cycle_from:PERIOD.from,forecast_desc:f.desc,valor:val,paid_date:dt,tx_id:txId||null});
+const chk=FIXED_CHECKS.find(k=>k.cycle_from===PERIOD.from&&k.forecast_desc===f.desc);
+if(chk)await sb.from('fixed_checks').update({valor:val,paid_date:dt,tx_id:txId||null,status:'pago'}).eq('id',chk.id);
+else await sb.from('fixed_checks').insert({cycle_from:PERIOD.from,forecast_desc:f.desc,valor:val,paid_date:dt,tx_id:txId||null,status:'pago'});
 await load();
 };
 window.fixedLinkOpen=(i)=>{
@@ -825,12 +873,20 @@ window.fixedLinkConfirm=async(i,txId)=>{
 const f=FC[i];const t=TX.find(x=>x.id===txId);
 if(!f||!t)return;
 $('modal-fixedlink').classList.add('hidden');
-await sb.from('fixed_checks').insert({cycle_from:PERIOD.from,forecast_desc:f.desc,valor:Number(t.value),paid_date:t.date,tx_id:txId});
+const chk=FIXED_CHECKS.find(k=>k.cycle_from===PERIOD.from&&k.forecast_desc===f.desc);
+if(chk)await sb.from('fixed_checks').update({valor:Number(t.value),paid_date:t.date,tx_id:txId,status:'pago'}).eq('id',chk.id);
+else await sb.from('fixed_checks').insert({cycle_from:PERIOD.from,forecast_desc:f.desc,valor:Number(t.value),paid_date:t.date,tx_id:txId,status:'pago'});
 await load();
 };
 $('btn-close-fixedlink').onclick=()=>$('modal-fixedlink').classList.add('hidden');
 window.fixedCheckUndo=async(id)=>{
+const chk=FIXED_CHECKS.find(k=>k.id===id);
+if(chk&&(chk.obs||chk.valor_previsto!=null)){
+// mantém o ajuste/observação do ciclo, só volta pra em aberto
+await sb.from('fixed_checks').update({status:'previsto',valor:null,paid_date:null,tx_id:null}).eq('id',id);
+}else{
 await sb.from('fixed_checks').delete().eq('id',id);
+}
 await load();
 };
 function renderHistorico(){
