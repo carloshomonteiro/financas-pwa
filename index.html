@@ -562,7 +562,7 @@ const entries=Object.entries(porCat).sort((a,b)=>b[1]-a[1]);const max=entries.le
 $('cats').innerHTML=entries.length?entries.map(([c,v])=>`<div style="margin-top:10px"><div class="row" style="font-size:13px"><span>${c}</span><span class="mono dim">${fmt(v)}</span></div><div class="bar-track"><div class="bar-fill" style="width:${(v/max*100).toFixed(1)}%"></div></div></div>`).join(''):'<div class="msg">Sem despesas no período.</div>';
 $('btn-clear-filters').classList.toggle('hidden',!hasActiveFilters());
 const allSorted=applySort(applyFilters(mtx));
-$('tx-table').innerHTML=allSorted.length?buildTxTable(allSorted):'<div class="msg">Nenhuma transação no período.</div>';
+$('tx-table').innerHTML=allSorted.length?buildTxTable(allSorted,mtx):'<div class="msg">Nenhuma transação no período.</div>';
 renderForecasts();
 renderHistorico();
 renderValidation();
@@ -1019,7 +1019,7 @@ else if(type==='enum')active=FILTERS[key].size>0;
 const arrow=SORT.key===key?(SORT.dir==='asc'?' ▲':' ▼'):'';
 return `<th class="th-filter-cell" data-col="${key}"${active?' style="color:var(--gold)"':''}>${label}${arrow} ⌄</th>`;
 }
-function buildTxTable(rows){
+function buildTxTable(rows,allRows){
 let h='<table class="tx-table"><tr>'+thCell('date','Data')+thCell('desc','Descrição')+thCell('value','Valor')+thCell('saldo','Saldo')+thCell('type','Tipo')+thCell('nature','Nat.')+thCell('category','Categoria')+thCell('payment_method','Forma')+'<th></th></tr>';
 let sumValor=0,sumSaldo=0,sumSplitDiscount=0;
 rows.forEach(t=>{
@@ -1043,13 +1043,25 @@ h+=`<tr>
 <td style="white-space:nowrap"><button class="btn-sm" onclick="openSplit('${t.id}')">÷</button>${t.type==='income'?` <button class="btn-sm" title="Vincular a divisão" onclick="openLinkSplit('${t.id}')">÷↩</button>`:''} <button class="btn-sm" style="color:var(--red)" onclick="delTx('${t.id}')">✕</button></td>
 </tr>`;
 });
+const filtrado=allRows&&allRows.length>rows.length;
 h+=`<tr style="border-top:2px solid var(--gold)">
 <td></td>
-<td><b style="font-size:11px">Subtotal (${rows.length})</b><br><span class="dim" style="font-size:10px">Descontado em divisões: ${fmt(sumSplitDiscount)}</span></td>
+<td><b style="font-size:11px">Subtotal (${rows.length}${filtrado?' de '+allRows.length:''})</b><br><span class="dim" style="font-size:10px">Descontado em divisões: ${fmt(sumSplitDiscount)}</span>${filtrado?'<br><span style="font-size:10px;color:var(--gold)">⚠ filtros ativos — '+(allRows.length-rows.length)+' transação(ões) fora da soma</span>':''}</td>
 <td class="mono ${sumValor>=0?'green':'red'}"><b>${fmt(sumValor)}</b></td>
 <td class="mono ${sumSaldo>=0?'green':'red'}"><b>${fmt(sumSaldo)}</b></td>
 <td></td><td></td><td></td><td></td><td></td>
 </tr>`;
+if(filtrado){
+let tv=0,ts=0;
+allRows.forEach(t=>{const sign=t.type==='income'?1:-1;tv+=sign*Number(t.value);ts+=sign*saldoOf(t);});
+h+=`<tr>
+<td></td>
+<td><span class="dim" style="font-size:10px">Período completo (${allRows.length}, sem filtros)</span></td>
+<td class="mono dim" style="font-size:11px">${fmt(tv)}</td>
+<td class="mono dim" style="font-size:11px">${fmt(ts)}</td>
+<td></td><td></td><td></td><td></td><td></td>
+</tr>`;
+}
 return h+'</table>';
 }
 function buildValidationTable(rows){
