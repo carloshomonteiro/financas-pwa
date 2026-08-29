@@ -364,7 +364,11 @@ function applySort(rows){
 const{key,dir}=SORT,mul=dir==='asc'?1:-1;
 return rows.slice().sort((a,b)=>{
 const av=sortVal(a,key),bv=sortVal(b,key);
-if(av<bv)return -1*mul;if(av>bv)return 1*mul;return 0;
+if(av<bv)return -1*mul;if(av>bv)return 1*mul;
+// desempate estável: horário de registro (created_at) e, por fim, id — a ordem nunca muda entre atualizações
+const ac=a.created_at||'',bc=b.created_at||'';
+if(ac<bc)return -1*mul;if(ac>bc)return 1*mul;
+return (a.id||'')<(b.id||'')?-1:1;
 });
 }
 const COL_TYPE={date:'date',desc:'text',value:'number',saldo:'number',type:'enum',nature:'enum',category:'enum',payment_method:'enum'};
@@ -497,7 +501,7 @@ setTimeout(()=>ss.classList.add('hidden'),15000);
 $('btn-sync').onclick=doSync;
 async function load(){
 const[t,g,f,ic,p,sp,c,au,inv,bl,snp,ace,fck]=await Promise.all([
-sb.from('transactions').select('*').order('date',{ascending:false}).limit(3000),
+sb.from('transactions').select('*').order('date',{ascending:false}).order('created_at',{ascending:false}).limit(3000),
 sb.from('goals').select('*'),
 sb.from('forecasts').select('*'),
 sb.from('income_forecasts').select('*'),
