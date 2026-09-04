@@ -1618,11 +1618,32 @@ if(!g||!g.ids.length)return;
 const tx=TX.find(t=>t.id===txId);
 let ids=g.ids,soma=g.total;
 if(parcial&&tx){
-// mais antigas primeiro, até o valor recebido (tolerância de 5 centavos)
-const orden=g.itens.slice().sort((a,b)=>(a.date||'').localeCompare(b.date||''));
+// encontra a COMBINAÇÃO de divisões que melhor fecha com o valor recebido (subset-sum exato em centavos)
+const cap=Math.round((Number(tx.value)+0.05)*100);
+const its=g.itens.slice();
 ids=[];soma=0;
+if(its.length<=40&&cap<=2000000){
+const from=new Int32Array(cap+1).fill(-1);
+// sentinela: soma 0 alcançável
+const START=-2;from[0]=START;
+for(let i=0;i<its.length;i++){
+const ci=Math.round(its[i].amount*100);
+if(ci<=0||ci>cap)continue;
+for(let s=cap;s>=ci;s--){
+if(from[s]===-1&&from[s-ci]!==-1)from[s]=i;
+}
+}
+let best=0;
+for(let s=cap;s>0;s--){if(from[s]!==-1){best=s;break;}}
+let s=best;
+while(s>0&&from[s]>=0){const i=from[s];ids.push(its[i].id);s-=Math.round(its[i].amount*100);}
+soma=Math.round(ids.reduce((t,id)=>t+Number(its.find(x=>x.id===id).amount)*100,0))/100;
+}else{
+// fallback pra listas enormes: mais antigas primeiro
+const orden=its.sort((a,b)=>(a.date||'').localeCompare(b.date||''));
 for(const it of orden){if(soma+it.amount<=Number(tx.value)+0.05){ids.push(it.id);soma+=it.amount;}}
-if(!ids.length){alert('Nenhuma divisão cabe no valor recebido — vincule individualmente.');return;}
+}
+if(!ids.length){alert('Nenhuma combinação de divisões cabe no valor recebido — vincule individualmente.');return;}
 }
 const resto=g.total-soma;
 if(!confirm(`Vincular ${ids.length} divisões de ${g.name} (${fmt(soma)}) a este recebimento?${resto>0.01?` Ficam em aberto ${fmt(resto)} pra vincular ao próximo recebimento.`:''} A transação vira Interna.`))return;
