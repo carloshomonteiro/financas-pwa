@@ -66,6 +66,53 @@ table.tx-table input.desc-input:focus { background:var(--bg); border-color:var(-
 table.tx-table .split-badge { display:inline-block; background:var(--line); color:var(--dim); font-size:10px; padding:2px 6px; border-radius:2px; margin-top:2px; }
 .hist-row { border-bottom:1px solid var(--line); padding:8px 0; font-size:12px; }
 </style>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600;700;800&display=swap" rel="stylesheet">
+<style id="theme-v2">
+/* ===== Tema v2 — inspirado na referência Vértice, identidade própria ===== */
+:root{
+--bg:#0A101F; --sheet:#121A2E; --sheet2:#16203A; --line:rgba(148,163,199,.14);
+--ink:#F1F5FB; --dim:#8B9BB4; --gold:#E7BC55; --green:#3DD68C; --red:#F2665C; --accent:#8B87F7;
+}
+body{
+font-family:'Inter',-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;
+background-image:radial-gradient(1200px 500px at 50% -150px, rgba(139,135,247,.10), transparent 60%),
+radial-gradient(900px 400px at 100% 100%, rgba(231,188,85,.05), transparent 55%);
+background-attachment:fixed;
+}
+.card{border-radius:16px;border:1px solid var(--line);box-shadow:0 4px 18px rgba(0,0,0,.22);background:linear-gradient(180deg,var(--sheet2),var(--sheet));}
+.titleblock{border:none;padding:6px 2px 10px;background:none;}
+.title{font-size:22px;font-weight:800;letter-spacing:-.3px;}
+.eyebrow{color:var(--accent);}
+.label{font-weight:600;}
+.big{font-size:30px;font-weight:800;letter-spacing:-.5px;}
+.med{font-weight:700;}
+input,select{border-radius:12px;background:rgba(10,16,31,.75);}
+input:focus,select:focus{border-color:var(--accent);box-shadow:0 0 0 3px rgba(139,135,247,.18);}
+.btn{border-radius:12px;box-shadow:0 6px 16px rgba(231,188,85,.22);}
+.btn-outline{border-radius:12px;}
+.btn-sm{border-radius:999px;padding:6px 12px;}
+.chip{border-radius:999px;}
+.chip.on{background:rgba(231,188,85,.12);}
+.bar-track{height:7px;border-radius:99px;background:rgba(148,163,199,.12);}
+.bar-fill{border-radius:99px;background:linear-gradient(90deg,#E7BC55,#F2D488);}
+.tabbar{background:rgba(13,20,38,.92);backdrop-filter:blur(14px);-webkit-backdrop-filter:blur(14px);border-top:1px solid var(--line);}
+.tab{border-radius:12px;margin:6px 2px;padding:9px 4px 7px;transition:all .15s;}
+.tab.on{color:var(--gold);background:rgba(231,188,85,.12);font-weight:700;}
+.bubble{border-radius:14px;}
+.b-user{background:rgba(139,135,247,.20);border:1px solid rgba(139,135,247,.25);}
+table.tx-table .split-badge{border-radius:99px;background:rgba(148,163,199,.14);}
+/* Card de destaque (patrimônio) — o "roxo" da referência */
+.accent-card{background:linear-gradient(135deg,#8B87F7,#6C63E8) !important;border:none !important;box-shadow:0 10px 26px rgba(108,99,232,.35) !important;}
+.accent-card .label{color:rgba(255,255,255,.75) !important;}
+.accent-card .big{color:#fff !important;}
+.accent-card .dim{color:rgba(255,255,255,.72) !important;}
+.accent-card .mono{color:#fff;}
+.accent-card .green{color:#CFFAE4 !important;}
+.accent-card .msg{color:rgba(255,255,255,.72) !important;}
+.accent-card .bar-track{background:rgba(255,255,255,.25);}
+.accent-card .bar-fill{background:#fff;}
+</style>
 </head>
 <body>
 <div id="view-login" class="wrap hidden">
@@ -102,7 +149,7 @@ table.tx-table .split-badge { display:inline-block; background:var(--line); colo
 <button class="btn-outline" id="btn-ciclo-next" style="flex:1;margin-top:0">Ciclo seguinte ▶</button>
 </div>
 </div>
-<div class="card"><div class="label">Saldo do período</div><div class="big mono" id="saldo">—</div></div>
+<div class="card accent-card"><div class="label">Saldo do período</div><div class="big mono" id="saldo">—</div></div>
 <div class="grid2">
 <div class="card"><div class="label">Receitas</div><div class="med mono green" id="receitas">—</div></div>
 <div class="card"><div class="label">Despesas</div><div class="med mono red" id="despesas">—</div></div>
@@ -149,7 +196,7 @@ table.tx-table .split-badge { display:inline-block; background:var(--line); colo
 <button class="btn-sm inv-nav-btn" data-sec="noticias" style="flex:1">Notícias</button>
 </div>
 <div id="inv-sec-visao">
-<div class="card" style="border:1px solid var(--gold)">
+<div class="card accent-card">
 <div class="label">Patrimônio total</div>
 <div class="big mono gold" id="inv-total-patrimonio">—</div>
 <div class="row" style="font-size:12px;margin-top:6px"><span class="dim">Investido</span><span class="mono dim" id="inv-total-investido">—</span></div>
