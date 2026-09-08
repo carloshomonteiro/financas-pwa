@@ -18,7 +18,8 @@ body { background:var(--bg); color:var(--ink); font-family:-apple-system,BlinkMa
 @media (min-width:680px){ .wrap{max-width:820px;} }
 @media (min-width:1000px){ .wrap{max-width:1100px;} }
 @media (min-width:1300px){ .wrap{max-width:1320px;} }
-.tabbar-inner { max-width:600px; margin:0 auto; display:flex; width:100%; }
+.tabbar-inner { max-width:600px; margin:0 auto; display:flex; width:100%; overflow-x:auto; scrollbar-width:none; }
+.tabbar-inner::-webkit-scrollbar { display:none; }
 @media (min-width:680px){ .tabbar-inner{max-width:820px;} }
 @media (min-width:1000px){ .tabbar-inner{max-width:1100px;} }
 @media (min-width:1300px){ .tabbar-inner{max-width:1320px;} }
@@ -46,7 +47,7 @@ input:focus,select:focus { border-color:var(--gold); }
 .bar-fill { height:100%; background:var(--gold); }
 .msg { font-size:12px; color:var(--dim); margin-top:8px; min-height:16px; }
 .tabbar { position:fixed; bottom:0; left:0; right:0; background:var(--sheet); border-top:1px solid var(--line); padding-bottom:env(safe-area-inset-bottom); z-index:10; }
-.tab { flex:1; text-align:center; padding:13px 4px 10px; color:var(--dim); font-size:11px; cursor:pointer; border:none; background:none; white-space:nowrap; }
+.tab { flex:1 0 auto; text-align:center; padding:13px 4px 10px; color:var(--dim); font-size:11px; cursor:pointer; border:none; background:none; white-space:nowrap; }
 .tab.on { color:var(--gold); }
 .bubble { padding:12px; margin-bottom:8px; border-radius:4px; font-size:14px; line-height:1.5; max-width:90%; white-space:pre-wrap; }
 .b-user { background:var(--line); margin-left:auto; } .b-bot { background:var(--sheet); border:1px solid var(--line); }
@@ -112,6 +113,9 @@ table.tx-table .split-badge{border-radius:99px;background:rgba(148,163,199,.14);
 .accent-card .msg{color:rgba(255,255,255,.72) !important;}
 .accent-card .bar-track{background:rgba(255,255,255,.25);}
 .accent-card .bar-fill{background:#fff;}
+/* Dock com 7 abas: aperta o espacamento lateral para caber em telas de 360px
+   (mantem o raio, a pill ativa e o blur do tema; a rolagem fica como reserva) */
+.tab{margin:6px 1px;padding:9px 2px 7px;}
 </style>
 </head>
 <body>
@@ -379,6 +383,23 @@ table.tx-table .split-badge{border-radius:99px;background:rgba(148,163,199,.14);
 <div class="msg" id="save-msg"></div>
 </div>
 </div>
+<div id="tab-compras" class="hidden">
+<div class="card">
+<div class="label">Assistente de compras</div>
+<div class="msg" style="margin-top:0">Antes de gastar, veja se cabe. A conta usa a receita prevista, as contas fixas do ciclo (com ajustes e dispensas) e o ritmo real das suas despesas variáveis. Sempre sobre o <b>ciclo atual da fatura</b>, independente do período filtrado no Painel.</div>
+<div id="compras-ciclo"></div>
+</div>
+<div class="card">
+<div class="label">Simular uma compra</div>
+<input id="c-desc" placeholder="O que é? (ex: fone de ouvido)">
+<input id="c-valor" inputmode="decimal" placeholder="Valor total (ex: 1299,90)">
+<select id="c-parcelas"></select>
+<div class="label" style="margin-top:12px">Categoria</div>
+<div class="chips" id="c-cat"></div>
+<button class="btn" id="btn-avaliar">Avaliar compra</button>
+</div>
+<div id="compras-result"></div>
+</div>
 <div id="tab-perguntar" class="hidden">
 <div class="card" id="chat-empty">
 <div class="label">Pergunte sobre sua vida financeira</div>
@@ -395,6 +416,7 @@ table.tx-table .split-badge{border-radius:99px;background:rgba(148,163,199,.14);
 <button class="tab on" data-tab="painel">Painel</button>
 <button class="tab" data-tab="previsoes">Previsões</button>
 <button class="tab" data-tab="investimentos">Investir</button>
+<button class="tab" data-tab="compras">Comprar</button>
 <button class="tab" data-tab="validacao">Validação<span id="val-count" class="hidden" style="background:var(--gold);color:var(--bg);border-radius:8px;padding:1px 5px;font-size:9px;margin-left:3px;font-weight:700"></span></button>
 <button class="tab" data-tab="gestao">Gestão</button>
 <button class="tab" data-tab="perguntar">Perguntar</button>
@@ -687,6 +709,7 @@ renderHistorico();
 renderValidation();
 renderBillAudit();
 renderRitmo();
+renderCompras();
 renderAlertDivisoes();
 populateFaturaCardSelect();
 populateAcertoPessoa();
@@ -2036,6 +2059,159 @@ $('save-msg').textContent='Lançado. ✓';load();
 $('btn-cam').onclick=()=>$('file-cam').click();$('btn-gal').onclick=()=>$('file-gal').click();
 $('file-cam').onchange=e=>scanFile(e.target.files[0]);$('file-gal').onchange=e=>scanFile(e.target.files[0]);
 async function scanFile(file){if(!file)return;$('scan-spin').classList.remove('hidden');$('scan-msg').textContent='';try{const b64=await new Promise((res,rej)=>{const r=new FileReader();r.onload=()=>res(r.result.split(',')[1]);r.onerror=rej;r.readAsDataURL(file);});const out=await callFn({mode:'receipt',image:b64,mime:file.type||'image/jpeg'});$('f-desc').value=out.estabelecimento||'';$('f-valor').value=out.valor!=null?String(out.valor):'';$('f-data').value=out.data||hoje();if(CATS.includes(out.categoria)){form.category=out.categoria;[...$('f-cat').children].forEach(c=>c.classList.toggle('on',c.dataset.v===out.categoria));}$('scan-msg').textContent='Dados lidos — confira e clique em Lançar.';}catch(err){$('scan-msg').textContent='Não consegui ler. Tente outra ou lance manualmente.';}$('scan-spin').classList.add('hidden');$('file-cam').value='';$('file-gal').value='';}
+// ===== Assistente de compras =====
+const COMPRAS_MIN='2026-07-11';
+let COMPRA_CAT='Outros';
+const r2=n=>Math.round(n*100)/100;
+function parseValorBR(s){s=String(s||'').trim().replace(/[^\d.,-]/g,'');if(s.indexOf(',')>=0)s=s.replace(/\./g,'').replace(',','.');return parseFloat(s);}
+function comprasCtx(){
+const cyc=cicloAtual();
+const hj=new Date(Date.now()-new Date().getTimezoneOffset()*60000).toISOString().slice(0,10);
+const dias=(a,b)=>Math.round((new Date(b+'T12:00:00')-new Date(a+'T12:00:00'))/86400000);
+const dTot=dias(cyc.from,cyc.to)+1;
+const dPass=Math.min(dTot,Math.max(1,dias(cyc.from,hj)+1));
+const dRest=Math.max(0,dTot-dPass);
+const receitaPrev=INC.reduce((s,i)=>s+Number(i.amount||0),0);
+const receitaReal=TX.filter(t=>!t.deleted&&t.validated!==false&&!t.internal&&t.type==='income'&&t.category!=='Investimento'&&(t.date||'')>=cyc.from&&(t.date||'')<=cyc.to).reduce((s,t)=>s+saldoOf(t),0);
+const receita=receitaPrev>0?receitaPrev:receitaReal;
+const fixPlano=FC.reduce((s,f)=>s+Number(f.amount||0),0);
+let fixCiclo=0;
+FC.forEach(f=>{
+const chk=FIXED_CHECKS.find(k=>k.cycle_from===cyc.from&&k.forecast_desc===f.desc);
+if(chk&&chk.status==='dispensado')return;
+fixCiclo+=(chk&&chk.status==='pago')?Number(chk.valor||0):Number(chk&&chk.valor_previsto!=null?chk.valor_previsto:f.amount);
+});
+// gastos ja registrados no ciclo (parcelas futuras do periodo ja contam como compromisso)
+const gastoVar=gastoLiquido(cyc.from,cyc.to,'var');
+const gastoFix=gastoLiquido(cyc.from,cyc.to,'fixa');
+const mediaVar=dPass>0?gastoVar/dPass:0;
+const varProj=gastoVar+mediaVar*dRest;
+// fixas: o maior entre o que ja caiu em transacoes e o previsto no checklist do ciclo (evita contar duas vezes)
+const fixProj=FC.length?Math.max(gastoFix,fixCiclo):gastoFix;
+let soma=0,n=0;
+for(let k=1;k<=6;k++){const pk=shiftPeriodStr(cyc.from,-k);if(pk.from<COMPRAS_MIN)continue;const g=gastoLiquido(pk.from,pk.to,'var');if(g>0){soma+=g;n++;}}
+const varMedia=n?soma/n:varProj;
+const folga=receita-fixProj-varProj;
+const folgaMensal=receita-(FC.length?fixPlano:fixProj)-varMedia;
+return{cyc,dTot,dPass,dRest,receita:r2(receita),receitaPrev:r2(receitaPrev),receitaReal:r2(receitaReal),fixPlano:r2(fixPlano),fixProj:r2(fixProj),gastoVar:r2(gastoVar),gastoFix:r2(gastoFix),mediaVar:r2(mediaVar),varProj:r2(varProj),varMedia:r2(varMedia),nCiclos:n,folga:r2(folga),folgaMensal:r2(folgaMensal)};
+}
+function mediaCategoria(cat){
+const cyc=cicloAtual();let s=0,n=0;
+for(let k=1;k<=6;k++){
+const pk=shiftPeriodStr(cyc.from,-k);if(pk.from<COMPRAS_MIN)continue;
+s+=TX.filter(t=>!t.deleted&&t.validated!==false&&!t.internal&&t.type==='expense'&&t.category===cat&&(t.date||'')>=pk.from&&(t.date||'')<=pk.to).reduce((a,t)=>a+Math.max(0,saldoOf(t)),0);
+n++;
+}
+return n?{media:r2(s/n),ciclos:n}:null;
+}
+function renderCompras(){
+const el=$('compras-ciclo');if(!el)return;
+const sel=$('c-parcelas');
+if(sel&&!sel.options.length)sel.innerHTML=Array.from({length:24},(_,i)=>`<option value="${i+1}">${i===0?'À vista (1x)':(i+1)+'x'}</option>`).join('');
+const cc=$('c-cat');
+if(cc){
+if(!CATS.includes(COMPRA_CAT))COMPRA_CAT=CATS[0]||'Outros';
+cc.innerHTML=CATS.map(c=>`<button class="chip${c===COMPRA_CAT?' on':''}" data-v="${c}">${c}</button>`).join('');
+cc.onclick=e=>{const b=e.target.closest('.chip');if(!b)return;COMPRA_CAT=b.dataset.v;[...cc.children].forEach(k=>k.classList.toggle('on',k===b));};
+}
+const x=comprasCtx();
+const fonte=x.receitaPrev>0?'previsão mensal':'receitas já lançadas';
+el.innerHTML=`
+<div class="row" style="font-size:13px;margin-top:10px"><span class="dim">Ciclo</span><span class="mono">${x.cyc.from.split('-').reverse().join('/')} → ${x.cyc.to.split('-').reverse().join('/')}</span></div>
+<div class="row" style="font-size:13px;margin-top:4px"><span class="dim">Dia <b>${x.dPass}</b> de ${x.dTot}</span><span class="dim">restam ${x.dRest} dias</span></div>
+<div class="row" style="font-size:13px;margin-top:10px"><span class="dim">Receita do ciclo <span style="font-size:10px">(${fonte})</span></span><span class="mono green">${fmt(x.receita)}</span></div>
+<div class="row" style="font-size:13px;margin-top:4px"><span class="dim">− Contas fixas do ciclo</span><span class="mono red">${fmt(x.fixProj)}</span></div>
+<div class="row" style="font-size:13px;margin-top:4px"><span class="dim">− Variáveis projetadas <span style="font-size:10px">(${fmt(x.gastoVar)} gastos + ${fmt(x.mediaVar)}/dia × ${x.dRest})</span></span><span class="mono red">${fmt(x.varProj)}</span></div>
+<div class="row" style="font-size:14px;margin-top:10px;padding-top:8px;border-top:1px solid var(--line)"><span><b>Sobra prevista no fim do ciclo</b></span><span class="mono ${x.folga>=0?'gold':'red'}">${fmt(x.folga)}</span></div>
+<div class="msg">Folga mensal típica: <span class="mono">${fmt(x.folgaMensal)}</span> — receita menos as fixas do plano e a média das variáveis${x.nCiclos?' de '+x.nCiclos+' ciclo(s) anterior(es)':' (sem histórico ainda: usa o ritmo deste ciclo)'}. É essa a régua para as parcelas dos próximos meses.</div>
+${x.receita>0?'':'<div class="msg" style="color:var(--red)">⚠ Sem previsão de receita cadastrada e sem receita lançada neste ciclo — cadastre a previsão na aba <b>Previsões</b> pra o veredito fazer sentido.</div>'}`;
+}
+function avaliarCompra(){
+const el=$('compras-result');if(!el)return;
+const valor=parseValorBR($('c-valor').value);
+if(!valor||isNaN(valor)||valor<=0){el.innerHTML='<div class="card"><div class="msg">Informe um valor válido pra simular.</div></div>';return;}
+const nPar=Number($('c-parcelas').value)||1;
+const parcela=r2(valor/nPar);
+const x=comprasCtx();
+if(x.receita<=0){el.innerHTML='<div class="card"><div class="msg">Não consigo avaliar: não há previsão de receita cadastrada (aba <b>Previsões</b>) nem receita lançada neste ciclo.</div></div>';return;}
+const sobraDepois=r2(x.folga-parcela);
+const sobraMensalDepois=r2(x.folgaMensal-parcela);
+const pctFolga=x.folga>0?parcela/x.folga*100:null;
+let sugestao=null;
+for(let k=1;k<=24;k++){const p=r2(valor/k);if(p<=x.folga*0.9&&(k===1||p<=x.folgaMensal*0.9)){sugestao=k;break;}}
+let cor,titulo,texto;
+if(sobraDepois<0){
+cor='var(--red)';titulo='<span class="red">✕ Não cabe agora</span>';
+texto=`${nPar>1?'A primeira parcela de '+fmt(parcela):fmt(r2(valor))+' à vista'} estoura a sobra do ciclo em <b>${fmt(r2(Math.abs(sobraDepois)))}</b>.`;
+}else if(nPar>1&&sobraMensalDepois<0){
+cor='var(--red)';titulo='<span class="red">⚠ A primeira parcela cabe, as próximas não</span>';
+texto=`Neste ciclo ainda sobra ${fmt(sobraDepois)}, mas ${fmt(parcela)} por mês supera a folga mensal típica (${fmt(x.folgaMensal)}) em ${fmt(r2(Math.abs(sobraMensalDepois)))}.`;
+}else if(pctFolga!=null&&pctFolga>60){
+cor='var(--gold)';titulo='<span class="gold">≈ Cabe, mas aperta</span>';
+texto=`Consome ${pctFolga.toFixed(0)}% da sobra do ciclo e deixa apenas <b>${fmt(sobraDepois)}</b> pra ${x.dRest} dia(s) de imprevisto.`;
+}else{
+cor='var(--green)';titulo='<span class="green">✓ Dá pra comprar</span>';
+texto=`Depois da compra ainda sobram <b>${fmt(sobraDepois)}</b> no ciclo${pctFolga!=null?' ('+pctFolga.toFixed(0)+'% da folga)':''}.`;
+}
+const prox=shiftPeriodStr(x.cyc.from,1);
+const cat=mediaCategoria(COMPRA_CAT);
+const linhas=[];
+linhas.push(`<div class="row" style="font-size:13px;margin-top:8px"><span class="dim">Compra</span><span class="mono">${fmt(r2(valor))}${nPar>1?' em '+nPar+'x de '+fmt(parcela):' à vista'}</span></div>`);
+linhas.push(`<div class="row" style="font-size:13px;margin-top:4px"><span class="dim">Sobra do ciclo</span><span class="mono" style="white-space:nowrap">${fmt(x.folga)} → <span class="${sobraDepois>=0?'gold':'red'}">${fmt(sobraDepois)}</span></span></div>`);
+if(nPar>1)linhas.push(`<div class="row" style="font-size:13px;margin-top:4px"><span class="dim">Folga mensal típica depois da parcela <span style="font-size:10px">(mais ${nPar-1} ciclo(s))</span></span><span class="mono ${sobraMensalDepois>=0?'gold':'red'}">${fmt(sobraMensalDepois)}</span></div>`);
+linhas.push(`<div class="row" style="font-size:13px;margin-top:4px"><span class="dim">Teto à vista hoje, sem furar o ciclo</span><span class="mono gold">${fmt(r2(Math.max(0,x.folga)))}</span></div>`);
+linhas.push(`<div class="row" style="font-size:13px;margin-top:4px"><span class="dim">Se esperar o próximo ciclo (${prox.from.split('-').reverse().join('/')})</span><span class="mono ${x.folgaMensal>=0?'gold':'red'}">${fmt(x.folgaMensal)}</span></div>`);
+if(cat&&cat.media>0)linhas.push(`<div class="msg">Em <b>${COMPRA_CAT}</b> você gasta em média ${fmt(cat.media)} por ciclo (${cat.ciclos} ciclo(s)): ${nPar>1?'a parcela':'esta compra'} equivale a ${(parcela/cat.media*100).toFixed(0)}% disso.</div>`);
+let dica='';
+if(sugestao&&sugestao>nPar)dica=`<div class="msg">Em <b>${sugestao}x</b> (${fmt(r2(valor/sugestao))} por ciclo) a compra caberia com folga.</div>`;
+else if(!sugestao)dica=`<div class="msg">Nem parcelando em 24x essa compra cabe na folga atual — daria pra ir juntando ${fmt(r2(Math.max(0,x.folgaMensal)))} por ciclo e comprar à vista depois.</div>`;
+else if(sugestao<nPar)dica=`<div class="msg">Cabe até em <b>${sugestao}x</b> (${fmt(r2(valor/sugestao))} por ciclo) se quiser encurtar o compromisso.</div>`;
+el.innerHTML=`<div class="card">
+<div class="label">Veredito</div>
+<div style="margin-top:10px;padding:10px;border:1px solid ${cor};border-radius:8px;font-size:14px"><b>${titulo}</b><br><span style="font-size:13px">${texto}</span></div>
+${linhas.join('')}
+${dica}
+<div class="row" style="gap:6px;margin-top:12px;flex-wrap:wrap;justify-content:flex-start">
+<button class="btn-sm" id="btn-compra-lancar">+ Lançar essa compra</button>
+<button class="btn-sm" id="btn-compra-ia">🤖 Pedir opinião ao assistente</button>
+</div>
+<div id="compra-ia-spin" class="spinner hidden"></div>
+<div id="compra-ia"></div>
+</div>`;
+$('btn-compra-lancar').onclick=()=>lancarCompra(valor);
+$('btn-compra-ia').onclick=()=>opiniaoCompra(x,valor,nPar,parcela);
+}
+function lancarCompra(valor){
+$('f-desc').value=$('c-desc').value.trim()||'Compra';
+$('f-valor').value=valor.toFixed(2).replace('.',',');
+$('f-data').value=hoje();
+form.type='expense';form.nature='variavel';
+[...$('f-tipo').children].forEach(c=>c.classList.toggle('on',c.dataset.v==='expense'));
+$('f-nature').value='variavel';
+if(CATS.includes(COMPRA_CAT)){form.category=COMPRA_CAT;[...$('f-cat').children].forEach(c=>c.classList.toggle('on',c.dataset.v===COMPRA_CAT));}
+$('save-msg').textContent='';
+$('modal-lancar').classList.remove('hidden');
+}
+async function opiniaoCompra(x,valor,nPar,parcela){
+const alvo=$('compra-ia');const spin=$('compra-ia-spin');
+alvo.innerHTML='';spin.classList.remove('hidden');
+const item=$('c-desc').value.trim()||'esta compra';
+const q=`Estou pensando em comprar: ${item} (categoria ${COMPRA_CAT}) por ${fmt(valor)}${nPar>1?` em ${nPar}x de ${fmt(parcela)}`:' à vista'}.
+Situação do ciclo atual (${x.cyc.from} a ${x.cyc.to}, dia ${x.dPass} de ${x.dTot}):
+- receita do ciclo: ${fmt(x.receita)}
+- contas fixas do ciclo: ${fmt(x.fixProj)}
+- variáveis já gastas: ${fmt(x.gastoVar)} (média ${fmt(x.mediaVar)}/dia), projeção até o fim: ${fmt(x.varProj)}
+- sobra prevista no fim do ciclo: ${fmt(x.folga)}
+- folga mensal típica: ${fmt(x.folgaMensal)}
+Diga em até 5 linhas se vale comprar agora, parcelar ou esperar, considerando minhas metas e o histórico. Seja direto e use os números acima.`;
+try{
+const out=await callFn({mode:'ask',question:q,history:'',transactions:TX.filter(t=>!t.deleted&&t.validated!==false).slice(0,800).map(t=>`${t.date}|${t.desc}|${t.type==='income'?'+':'-'}${t.value}|${t.category}|${t.payment_method||'—'}`).join('\n'),goals:GOALS,currentPeriodFrom:x.cyc.from,currentPeriodTo:x.cyc.to});
+alvo.innerHTML=`<div class="bubble b-bot" style="max-width:100%;margin-top:10px">${mdToHtml(out.text||'Sem resposta.')}</div>`;
+}catch(err){alvo.innerHTML='<div class="msg red">Não consegui consultar o assistente agora.</div>';}
+spin.classList.add('hidden');
+}
+$('btn-avaliar').onclick=avaliarCompra;
+$('c-valor').onkeydown=e=>{if(e.key==='Enter')avaliarCompra();};
 $('btn-ask').onclick=ask;$('ask-input').onkeydown=e=>{if(e.key==='Enter')ask();};
 let CHAT_HISTORY=[];
 function escapeHtml(s){return (s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');}
@@ -2145,7 +2321,7 @@ renderUsersList();
 }catch(e){$('invite-msg').innerHTML='<span class="red">Erro: '+e.message+'</span>';}
 $('btn-invite').disabled=false;
 };
-document.querySelector('.tabbar').onclick=e=>{const tab=e.target.closest('.tab')?.dataset.tab;if(!tab)return;['painel','previsoes','investimentos','validacao','gestao','perguntar'].forEach(t=>$('tab-'+t).classList.toggle('hidden',t!==tab));[...document.querySelectorAll('.tab')].forEach(b=>b.classList.toggle('on',b.dataset.tab===tab));if(tab==='gestao'&&MY_ROLE==='owner'){renderUsersList();renderConnectionsList();}};
+document.querySelector('.tabbar').onclick=e=>{const tab=e.target.closest('.tab')?.dataset.tab;if(!tab)return;['painel','previsoes','investimentos','compras','validacao','gestao','perguntar'].forEach(t=>$('tab-'+t).classList.toggle('hidden',t!==tab));[...document.querySelectorAll('.tab')].forEach(b=>b.classList.toggle('on',b.dataset.tab===tab));if(tab==='gestao'&&MY_ROLE==='owner'){renderUsersList();renderConnectionsList();}};
 if('serviceWorker' in navigator)navigator.serviceWorker.register('sw.js').catch(()=>{});
 boot();
 </script>
