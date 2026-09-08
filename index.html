@@ -67,6 +67,56 @@ table.tx-table input.desc-input:focus { background:var(--bg); border-color:var(-
 table.tx-table .split-badge { display:inline-block; background:var(--line); color:var(--dim); font-size:10px; padding:2px 6px; border-radius:2px; margin-top:2px; }
 .hist-row { border-bottom:1px solid var(--line); padding:8px 0; font-size:12px; }
 </style>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600;700;800&display=swap" rel="stylesheet">
+<style id="theme-v2">
+/* ===== Tema v2 — inspirado na referência Vértice, identidade própria ===== */
+:root{
+--bg:#0A101F; --sheet:#121A2E; --sheet2:#16203A; --line:rgba(148,163,199,.14);
+--ink:#F1F5FB; --dim:#8B9BB4; --gold:#E7BC55; --green:#3DD68C; --red:#F2665C; --accent:#8B87F7;
+}
+body{
+font-family:'Inter',-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;
+background-image:radial-gradient(1200px 500px at 50% -150px, rgba(139,135,247,.10), transparent 60%),
+radial-gradient(900px 400px at 100% 100%, rgba(231,188,85,.05), transparent 55%);
+background-attachment:fixed;
+}
+.card{border-radius:16px;border:1px solid var(--line);box-shadow:0 4px 18px rgba(0,0,0,.22);background:linear-gradient(180deg,var(--sheet2),var(--sheet));}
+.titleblock{border:none;padding:6px 2px 10px;background:none;}
+.title{font-size:22px;font-weight:800;letter-spacing:-.3px;}
+.eyebrow{color:var(--accent);}
+.label{font-weight:600;}
+.big{font-size:30px;font-weight:800;letter-spacing:-.5px;}
+.med{font-weight:700;}
+input,select{border-radius:12px;background:rgba(10,16,31,.75);}
+input:focus,select:focus{border-color:var(--accent);box-shadow:0 0 0 3px rgba(139,135,247,.18);}
+.btn{border-radius:12px;box-shadow:0 6px 16px rgba(231,188,85,.22);}
+.btn-outline{border-radius:12px;}
+.btn-sm{border-radius:999px;padding:6px 12px;}
+.chip{border-radius:999px;}
+.chip.on{background:rgba(231,188,85,.12);}
+.bar-track{height:7px;border-radius:99px;background:rgba(148,163,199,.12);}
+.bar-fill{border-radius:99px;background:linear-gradient(90deg,#E7BC55,#F2D488);}
+.tabbar{background:rgba(13,20,38,.92);backdrop-filter:blur(14px);-webkit-backdrop-filter:blur(14px);border-top:1px solid var(--line);}
+.tab{border-radius:12px;margin:6px 2px;padding:9px 4px 7px;transition:all .15s;}
+.tab.on{color:var(--gold);background:rgba(231,188,85,.12);font-weight:700;}
+.bubble{border-radius:14px;}
+.b-user{background:rgba(139,135,247,.20);border:1px solid rgba(139,135,247,.25);}
+table.tx-table .split-badge{border-radius:99px;background:rgba(148,163,199,.14);}
+/* Card de destaque (patrimônio) — o "roxo" da referência */
+.accent-card{background:linear-gradient(135deg,#8B87F7,#6C63E8) !important;border:none !important;box-shadow:0 10px 26px rgba(108,99,232,.35) !important;}
+.accent-card .label{color:rgba(255,255,255,.75) !important;}
+.accent-card .big{color:#fff !important;}
+.accent-card .dim{color:rgba(255,255,255,.72) !important;}
+.accent-card .mono{color:#fff;}
+.accent-card .green{color:#CFFAE4 !important;}
+.accent-card .msg{color:rgba(255,255,255,.72) !important;}
+.accent-card .bar-track{background:rgba(255,255,255,.25);}
+.accent-card .bar-fill{background:#fff;}
+/* Dock com 7 abas: aperta o espacamento lateral para caber em telas de 360px
+   (mantem o raio, a pill ativa e o blur do tema; a rolagem fica como reserva) */
+.tab{margin:6px 1px;padding:9px 2px 7px;}
+</style>
 </head>
 <body>
 <div id="view-login" class="wrap hidden">
@@ -103,7 +153,7 @@ table.tx-table .split-badge { display:inline-block; background:var(--line); colo
 <button class="btn-outline" id="btn-ciclo-next" style="flex:1;margin-top:0">Ciclo seguinte ▶</button>
 </div>
 </div>
-<div class="card"><div class="label">Saldo do período</div><div class="big mono" id="saldo">—</div></div>
+<div class="card accent-card"><div class="label">Saldo do período</div><div class="big mono" id="saldo">—</div></div>
 <div class="grid2">
 <div class="card"><div class="label">Receitas</div><div class="med mono green" id="receitas">—</div></div>
 <div class="card"><div class="label">Despesas</div><div class="med mono red" id="despesas">—</div></div>
@@ -112,6 +162,7 @@ table.tx-table .split-badge { display:inline-block; background:var(--line); colo
 <div class="label">Ritmo do período</div>
 <div id="ritmo"></div>
 </div>
+<div id="alert-divisoes"></div>
 <div class="card">
 <div class="row" style="flex-wrap:wrap;gap:6px"><div class="label">Transações do período</div><div style="display:flex;gap:6px;flex-wrap:wrap"><button class="btn-sm" id="btn-open-lancar">+ Manual</button><button class="btn-sm hidden" id="btn-clear-filters" style="color:var(--red);border-color:var(--red)">✕ Filtros</button><button class="btn-sm" id="btn-export">⬇ Excel</button></div></div>
 <div class="msg">Toque no nome de uma coluna pra filtrar ou ordenar.</div>
@@ -142,9 +193,21 @@ table.tx-table .split-badge { display:inline-block; background:var(--line); colo
 </div>
 </div>
 <div id="tab-investimentos" class="hidden">
-<div class="grid2">
-<div class="card"><div class="label">Patrimônio (ativos)</div><div class="big mono gold" id="inv-total-patrimonio">—</div></div>
-<div class="card"><div class="label">Rendimento</div><div class="med mono" id="inv-total-rendimento">—</div><div class="msg" id="inv-rendimento-pct" style="margin-top:2px"></div><div class="msg" id="inv-cdi-carteira" style="margin-top:2px"></div></div>
+<div class="row" style="gap:6px;flex-wrap:wrap;margin-bottom:4px" id="inv-nav">
+<button class="btn-sm inv-nav-btn" data-sec="visao" style="flex:1;color:var(--gold);border-color:var(--gold)">Visão</button>
+<button class="btn-sm inv-nav-btn" data-sec="proventos" style="flex:1">Proventos</button>
+<button class="btn-sm inv-nav-btn" data-sec="metas" style="flex:1">Metas</button>
+<button class="btn-sm inv-nav-btn" data-sec="noticias" style="flex:1">Notícias</button>
+</div>
+<div id="inv-sec-visao">
+<div class="card accent-card">
+<div class="label">Patrimônio total</div>
+<div class="big mono gold" id="inv-total-patrimonio">—</div>
+<div class="row" style="font-size:12px;margin-top:6px"><span class="dim">Investido</span><span class="mono dim" id="inv-total-investido">—</span></div>
+<div class="row" style="font-size:12px;margin-top:2px"><span class="dim">Rendimento</span><span class="mono" id="inv-total-rendimento">—</span></div>
+<div class="msg" id="inv-rendimento-pct" style="margin-top:2px"></div>
+<div class="msg" id="inv-cdi-carteira" style="margin-top:2px"></div>
+<div class="row" style="font-size:12px;margin-top:2px"><span class="dim">Proventos (12m)</span><span class="mono green" id="inv-kpi-proventos">—</span></div>
 </div>
 <div class="card">
 <div class="label">Evolução do patrimônio</div>
@@ -162,6 +225,57 @@ table.tx-table .split-badge { display:inline-block; background:var(--line); colo
 <div class="row"><div class="label">Investimentos</div><button class="btn-sm" id="btn-toggle-inv-inactive">Mostrar resgatados</button></div>
 <div class="msg" id="inv-count-msg">Sincronizado via Open Finance junto com o Sync do Painel.</div>
 <div class="tx-scroll" id="inv-table"></div>
+</div>
+</div>
+<div id="inv-sec-proventos" class="hidden">
+<div class="card">
+<div class="label">Proventos e ganhos por ativo</div>
+<div class="msg" style="margin-top:0">Registre dividendos, JCP, rendimentos de SCP, aluguéis e juros recebidos. Quando ações e FIIs chegarem, é aqui que a bola de neve aparece.</div>
+<div class="grid2" style="margin-top:8px">
+<div class="card"><div class="label">Recebido (12m)</div><div class="med mono green" id="prov-12m">—</div></div>
+<div class="card"><div class="label">Média/mês (12m)</div><div class="med mono" id="prov-media">—</div></div>
+</div>
+<div id="prov-chart"></div>
+</div>
+<div class="card">
+<div class="label">Lançar provento</div>
+<input type="date" id="prov-date">
+<input id="prov-asset" placeholder="Ativo (ex: CDB C6, SCP Empresa X)" list="prov-assets-list">
+<datalist id="prov-assets-list"></datalist>
+<select id="prov-type"><option>Dividendo</option><option>JCP</option><option>Rendimento SCP</option><option>Aluguel</option><option>Juros</option><option>Outro</option></select>
+<input type="number" step="0.01" id="prov-amount" placeholder="Valor (R$)">
+<input id="prov-obs" placeholder="Observação (opcional)">
+<button class="btn-outline" id="btn-prov-add" style="margin-top:10px">+ Lançar</button>
+</div>
+<div class="card"><div class="label">Histórico</div><div id="prov-list"></div></div>
+</div>
+<div id="inv-sec-metas" class="hidden">
+<div class="card">
+<div class="label">Meta de patrimônio</div>
+<div class="msg" style="margin-top:0">Defina o alvo e o sistema calcula o aporte mensal necessário e o progresso — no estilo do plano de aposentadoria.</div>
+<input type="number" id="meta-valor" placeholder="Quero atingir (R$)">
+<input type="number" id="meta-ano" placeholder="Até o ano de (ex: 2030)">
+<input type="number" step="0.1" id="meta-taxa" placeholder="Rentabilidade anual esperada (%)">
+<button class="btn-outline" id="btn-meta-save" style="margin-top:10px">Salvar meta</button>
+<div id="meta-result"></div>
+</div>
+<div class="card">
+<div class="label">Simulação de aposentadoria</div>
+<div class="msg" style="margin-top:0">Quanto vou ter lá na frente — e quanto isso rende por mês.</div>
+<input type="number" id="sim-aporte" placeholder="Aporte mensal (R$)">
+<input type="number" id="sim-anos" placeholder="Horizonte (anos)">
+<input type="number" step="0.1" id="sim-taxa" placeholder="Rentabilidade anual (%)">
+<input type="number" step="0.1" id="sim-dy" placeholder="Renda anual na fase de usufruto (% a.a.)">
+<button class="btn-outline" id="btn-sim-run" style="margin-top:10px">Simular</button>
+<div id="sim-result"></div>
+</div>
+</div>
+<div id="inv-sec-noticias" class="hidden">
+<div class="card">
+<div class="row"><div class="label">Notícias do mercado e dos seus ativos</div><button class="btn-sm" id="btn-news-refresh">↻ Atualizar</button></div>
+<div class="msg" style="margin-top:0">Busca automática por notícias das instituições dos seus investimentos + mercado financeiro (Google News).</div>
+<div id="news-list"><div class="msg">Carregando…</div></div>
+</div>
 </div>
 </div>
 <div id="tab-validacao" class="hidden">
@@ -338,12 +452,12 @@ const SB_URL='https://liyvselfbeuosdcifybp.supabase.co';
 const SB_KEY='sb_publishable_ALciIAXd79y_flcDKvsgzA_t84qYiXz';
 const FN_URL=SB_URL+'/functions/v1/gemini';
 let CATS=['Outros'];
-const PAY_METHODS=['PIX','Débito','Cartão de Crédito','Crédito em conta','TED','DOC','Boleto','Dinheiro','Outro'];
+const PAY_METHODS=['Conta Corrente','Cartão de Crédito','Boleto','Dinheiro','Outro'];
 const sb=createClient(SB_URL,SB_KEY);
 const $=id=>document.getElementById(id);
 const fmt=n=>'R$ '+Number(n).toLocaleString('pt-BR',{minimumFractionDigits:2});
 const hoje=()=>new Date().toISOString().slice(0,10);
-let TX=[],GOALS={},FC=[],INC=[],PEOPLE=[],SPLITS={},AUDIT=[],PENDING=[],INVESTMENTS=[],BILLS=[],SNAPSHOTS=[],ACERTO_EMAILS=[],FIXED_CHECKS=[],CDI_PROMISE=null,SHOW_INACTIVE_INV=false,form={type:'expense',category:'Outros',nature:'variavel'};
+let TX=[],GOALS={},FC=[],INC=[],PEOPLE=[],SPLITS={},AUDIT=[],PENDING=[],INVESTMENTS=[],BILLS=[],SNAPSHOTS=[],ACERTO_EMAILS=[],FIXED_CHECKS=[],INVEST_INCOMES=[],INVEST_PLAN=null,CDI_PROMISE=null,SHOW_INACTIVE_INV=false,form={type:'expense',category:'Outros',nature:'variavel'};
 function freshFilters(){return{desc:'',date:{from:'',to:''},value:{min:'',max:''},saldo:{min:'',max:''},type:new Set(),nature:new Set(),category:new Set(),payment_method:new Set(),split:'',internal:''};}
 let FILTERS=freshFilters();
 let SORT={key:'date',dir:'desc'};
@@ -519,7 +633,7 @@ setTimeout(()=>ss.classList.add('hidden'),15000);
 }
 $('btn-sync').onclick=doSync;
 async function load(){
-const[t,g,f,ic,p,sp,c,au,inv,bl,snp,ace,fck]=await Promise.all([
+const[t,g,f,ic,p,sp,c,au,inv,bl,snp,ace,fck,pin,ipl]=await Promise.all([
 sb.from('transactions').select('*').order('date',{ascending:false}).order('created_at',{ascending:false}).limit(3000),
 sb.from('goals').select('*'),
 sb.from('forecasts').select('*'),
@@ -533,6 +647,8 @@ sb.from('credit_card_bills').select('*').order('due_date',{ascending:false}),
 sb.from('investment_snapshots').select('*').order('snap_date'),
 sb.from('acerto_emails').select('*').order('email_date',{ascending:false}),
 sb.from('fixed_checks').select('*'),
+sb.from('investment_incomes').select('*').order('date',{ascending:false}),
+sb.from('invest_plan').select('*').limit(1),
 ]);
 TX=t.data||[];GOALS={};(g.data||[]).forEach(x=>GOALS[x.category]=Number(x.amount));
 FC=f.data||[];INC=ic.data||[];PEOPLE=p.data||[];
@@ -543,6 +659,8 @@ BILLS=bl.data||[];
 SNAPSHOTS=snp.data||[];
 ACERTO_EMAILS=ace.data||[];
 FIXED_CHECKS=fck.data||[];
+INVEST_INCOMES=pin.data||[];
+INVEST_PLAN=(ipl.data&&ipl.data[0])||null;
 PENDING=TX.filter(t=>!t.deleted&&t.validated===false);
 const vc=$('val-count');if(PENDING.length&&MY_ROLE==='owner'){vc.textContent=PENDING.length;vc.classList.remove('hidden');}else{vc.classList.add('hidden');}
 SPLITS={};(sp.data||[]).forEach(s=>{if(!SPLITS[s.transaction_id])SPLITS[s.transaction_id]=[];SPLITS[s.transaction_id].push(s);});
@@ -592,6 +710,7 @@ renderValidation();
 renderBillAudit();
 renderRitmo();
 renderCompras();
+renderAlertDivisoes();
 populateFaturaCardSelect();
 populateAcertoPessoa();
 renderAcertoEmails();
@@ -733,6 +852,10 @@ const totalInvested=rows.reduce((s,i)=>s+Number(i.amount_original||i.balance||0)
 const rendimento=total-totalInvested;
 const rendPct=totalInvested>0?(rendimento/totalInvested*100):0;
 $('inv-total-patrimonio').textContent=fmt(total);
+if($('inv-total-investido'))$('inv-total-investido').textContent=fmt(totalInvested);
+const cut12=new Date(Date.now()-365*86400000).toISOString().slice(0,10);
+const prov12=INVEST_INCOMES.filter(x=>x.date>=cut12).reduce((s,x)=>s+Number(x.amount),0);
+if($('inv-kpi-proventos'))$('inv-kpi-proventos').textContent=fmt(prov12);
 $('inv-total-rendimento').textContent=fmt(rendimento);
 $('inv-total-rendimento').className='med mono '+(rendimento>=0?'green':'red');
 $('inv-rendimento-pct').textContent=totalInvested>0?(rendimento>=0?'+':'')+rendPct.toFixed(2)+'% sobre o valor investido':'';
@@ -772,7 +895,127 @@ h+='</table>';
 $('inv-table').innerHTML=sorted.length?h:'<div class="msg">Nenhum investimento encontrado.</div>';
 renderInvEvolucao();
 renderInvAnalise();
+renderProventos();
+renderInvMetas();
 }
+// ---- navegação entre seções do Investir ----
+document.querySelectorAll('.inv-nav-btn').forEach(b=>{
+b.onclick=()=>{
+document.querySelectorAll('.inv-nav-btn').forEach(x=>{x.style.color='';x.style.borderColor='';});
+b.style.color='var(--gold)';b.style.borderColor='var(--gold)';
+['visao','proventos','metas','noticias'].forEach(s=>$('inv-sec-'+s).classList.toggle('hidden',s!==b.dataset.sec));
+if(b.dataset.sec==='noticias'&&!window.__NEWS_LOADED)loadNoticias();
+};
+});
+// ---- Proventos ----
+function renderProventos(){
+if(!$('prov-list'))return;
+const cut=new Date(Date.now()-365*86400000).toISOString().slice(0,10);
+const last12=INVEST_INCOMES.filter(x=>x.date>=cut);
+const tot12=last12.reduce((s,x)=>s+Number(x.amount),0);
+$('prov-12m').textContent=fmt(tot12);
+$('prov-media').textContent=fmt(tot12/12);
+// barras mensais (últimos 12 meses)
+const byMonth={};
+for(let k=11;k>=0;k--){const d=new Date();d.setMonth(d.getMonth()-k);byMonth[d.toISOString().slice(0,7)]=0;}
+last12.forEach(x=>{const m=x.date.slice(0,7);if(byMonth[m]!=null)byMonth[m]+=Number(x.amount);});
+const maxM=Math.max(...Object.values(byMonth),1);
+$('prov-chart').innerHTML=Object.entries(byMonth).map(([m,v])=>`<div style="margin-top:6px"><div class="row" style="font-size:11px"><span class="dim">${m.split('-').reverse().join('/')}</span><span class="mono dim">${v?fmt(v):'—'}</span></div><div class="bar-track"><div class="bar-fill" style="width:${(v/maxM*100).toFixed(1)}%;background:var(--green)"></div></div></div>`).join('');
+// datalist com nomes dos ativos
+$('prov-assets-list').innerHTML=[...new Set(INVESTMENTS.map(i=>i.name).filter(Boolean))].map(n=>`<option value="${n}">`).join('');
+if(!$('prov-date').value)$('prov-date').value=new Date().toISOString().slice(0,10);
+$('prov-list').innerHTML=INVEST_INCOMES.length?INVEST_INCOMES.slice(0,60).map(x=>`<div class="row" style="font-size:12px;margin-top:8px;align-items:center">
+<span style="flex:1;min-width:0"><b>${x.asset}</b> <span class="dim" style="font-size:10px">${x.type}</span><br><span class="dim">${x.date.split('-').reverse().join('/')}${x.obs?' · '+x.obs:''}</span></span>
+<span class="mono green">${fmt(x.amount)}</span>
+<button class="btn-sm" style="color:var(--red)" onclick="provDel('${x.id}')">✕</button>
+</div>`).join(''):'<div class="msg">Nenhum provento lançado ainda.</div>';
+}
+$('btn-prov-add').onclick=async()=>{
+const date=$('prov-date').value,asset=$('prov-asset').value.trim(),type=$('prov-type').value,amount=Number($('prov-amount').value),obs=$('prov-obs').value.trim();
+if(!date||!asset||!amount){alert('Preencha data, ativo e valor.');return;}
+const inv=INVESTMENTS.find(i=>i.name===asset);
+await sb.from('investment_incomes').insert({date,asset,type,amount,obs:obs||null,investment_id:inv?.id||null});
+$('prov-asset').value='';$('prov-amount').value='';$('prov-obs').value='';
+await load();
+};
+window.provDel=async(id)=>{
+if(!confirm('Excluir este provento?'))return;
+await sb.from('investment_incomes').delete().eq('id',id);
+await load();
+};
+// ---- Metas & Simulação ----
+function fvComAportes(pv,aporteMes,taxaAnual,meses){
+const i=Math.pow(1+taxaAnual/100,1/12)-1;
+return pv*Math.pow(1+i,meses)+(i>0?aporteMes*((Math.pow(1+i,meses)-1)/i):aporteMes*meses);
+}
+function renderInvMetas(){
+if(!$('meta-result'))return;
+const p=INVEST_PLAN||{};
+if(p.meta_valor&&!$('meta-valor').value)$('meta-valor').value=p.meta_valor;
+if(p.meta_ano&&!$('meta-ano').value)$('meta-ano').value=p.meta_ano;
+if(p.taxa_anual&&!$('meta-taxa').value)$('meta-taxa').value=p.taxa_anual;
+if(p.aporte_mensal&&!$('sim-aporte').value)$('sim-aporte').value=p.aporte_mensal;
+if(p.dy_anual&&!$('sim-dy').value)$('sim-dy').value=p.dy_anual;
+const atual=INVESTMENTS.filter(i=>Number(i.balance)>0).reduce((s,i)=>s+Number(i.balance),0);
+if(!p.meta_valor||!p.meta_ano){$('meta-result').innerHTML='<div class="msg">Defina a meta acima pra ver o plano.</div>';return;}
+const hoje=new Date();
+const meses=Math.max(1,(p.meta_ano-hoje.getFullYear())*12+(11-hoje.getMonth()));
+const taxa=Number(p.taxa_anual||10);
+const i=Math.pow(1+taxa/100,1/12)-1;
+const fvSemAporte=atual*Math.pow(1+i,meses);
+const falta=Math.max(0,p.meta_valor-fvSemAporte);
+const aporteNecessario=i>0?falta/(((Math.pow(1+i,meses)-1)/i)):falta/meses;
+const prog=Math.min(100,atual/p.meta_valor*100);
+$('meta-result').innerHTML=`
+<div class="row" style="font-size:13px;margin-top:12px"><span class="dim">Você tem hoje</span><span class="mono gold">${fmt(atual)}</span></div>
+<div class="row" style="font-size:13px;margin-top:4px"><span class="dim">Faltam</span><span class="mono">${fmt(Math.max(0,p.meta_valor-atual))}</span></div>
+<div class="row" style="font-size:13px;margin-top:4px"><span class="dim">Prazo</span><span class="mono">${meses} meses (dez/${p.meta_ano})</span></div>
+<div class="row" style="font-size:13px;margin-top:4px"><span class="dim">Aporte mensal necessário</span><span class="mono gold"><b>${fmt(Math.max(0,aporteNecessario))}</b></span></div>
+<div style="margin-top:8px"><div class="row" style="font-size:11px"><span class="dim">Progresso</span><span class="mono dim">${prog.toFixed(1)}%</span></div><div class="bar-track"><div class="bar-fill" style="width:${prog.toFixed(1)}%"></div></div></div>`;
+}
+$('btn-meta-save').onclick=async()=>{
+const row={id:1,meta_valor:Number($('meta-valor').value)||null,meta_ano:Number($('meta-ano').value)||null,taxa_anual:Number($('meta-taxa').value)||10,updated_at:new Date().toISOString()};
+await sb.from('invest_plan').upsert(row,{onConflict:'id'});
+await load();
+};
+$('btn-sim-run').onclick=async()=>{
+const aporte=Number($('sim-aporte').value)||0;
+const anos=Number($('sim-anos').value)||0;
+const taxa=Number($('sim-taxa').value)||Number($('meta-taxa').value)||10;
+const dy=Number($('sim-dy').value)||6;
+if(!anos){alert('Informe o horizonte em anos.');return;}
+const atual=INVESTMENTS.filter(i=>Number(i.balance)>0).reduce((s,i)=>s+Number(i.balance),0);
+const fv=fvComAportes(atual,aporte,taxa,anos*12);
+const rendaMes=fv*(dy/100)/12;
+const investidoTotal=atual+aporte*anos*12;
+$('sim-result').innerHTML=`
+<div class="row" style="font-size:13px;margin-top:12px"><span class="dim">Patrimônio em ${anos} anos</span><span class="mono gold"><b>${fmt(fv)}</b></span></div>
+<div class="row" style="font-size:13px;margin-top:4px"><span class="dim">Total aportado</span><span class="mono dim">${fmt(investidoTotal)}</span></div>
+<div class="row" style="font-size:13px;margin-top:4px"><span class="dim">Juros no período</span><span class="mono green">${fmt(fv-investidoTotal)}</span></div>
+<div class="row" style="font-size:13px;margin-top:4px"><span class="dim">Renda mensal futura (${dy}% a.a.)</span><span class="mono green"><b>${fmt(rendaMes)}</b></span></div>`;
+await sb.from('invest_plan').upsert({id:1,aporte_mensal:aporte,dy_anual:dy,taxa_anual:taxa,updated_at:new Date().toISOString()},{onConflict:'id'});
+};
+// ---- Notícias ----
+async function loadNoticias(){
+window.__NEWS_LOADED=true;
+$('news-list').innerHTML='<div class="msg">Buscando notícias…</div>';
+try{
+const issuers=[...new Set(INVESTMENTS.filter(i=>Number(i.balance)>0).map(i=>i.issuer).filter(Boolean))].slice(0,4);
+const queries=[...issuers.map(x=>x+' banco investimentos'),'mercado financeiro brasil CDI selic'];
+const{data:{session}}=await sb.auth.getSession();
+const res=await fetch(SB_URL+'/functions/v1/noticias',{method:'POST',headers:{'Content-Type':'application/json','Authorization':'Bearer '+session.access_token},body:JSON.stringify({queries})});
+const data=await res.json();
+if(!data.items||!data.items.length){$('news-list').innerHTML='<div class="msg">Nenhuma notícia encontrada agora.</div>';return;}
+$('news-list').innerHTML=data.items.map(n=>{
+const d=n.pub?new Date(n.pub).toLocaleDateString('pt-BR',{day:'2-digit',month:'2-digit'}):'';
+return `<a href="${n.link}" target="_blank" rel="noopener" style="display:block;text-decoration:none;color:inherit;margin-top:10px;padding:8px;border:1px solid var(--line);border-radius:8px">
+<div style="font-size:13px;line-height:1.35">${n.title}</div>
+<div class="dim" style="font-size:10px;margin-top:4px">${n.source||''}${d?' · '+d:''}</div>
+</a>`;
+}).join('');
+}catch(e){$('news-list').innerHTML='<div class="msg red">Erro ao buscar notícias: '+e.message+'</div>';}
+}
+$('btn-news-refresh').onclick=()=>loadNoticias();
 function renderForecasts(){
 const incTotal=INC.reduce((s,i)=>s+Number(i.amount),0);
 $('inc-view').innerHTML=INC.length?INC.map(i=>`<div class="row" style="font-size:13px;margin-top:8px"><span>${i.desc}</span><span class="mono green">${fmt(i.amount)}</span></div>`).join('')+`<div class="row" style="font-size:13px;margin-top:12px;padding-top:10px;border-top:1px solid var(--line)"><span><b>Total previsto</b></span><span class="mono green">${fmt(incTotal)}</span></div>`:'<div class="msg">Sem previsão.</div>';
@@ -968,6 +1211,20 @@ return{from:iso(f),to:iso(t)};
 function addDaysStr(dateStr,n){
 const d=new Date(dateStr+'T12:00:00');d.setDate(d.getDate()+n);
 return new Date(d.getTime()-d.getTimezoneOffset()*60000).toISOString().slice(0,10);
+}
+function renderAlertDivisoes(){
+const el=$('alert-divisoes');if(!el)return;
+const atual=cicloAtual();
+// divisões em aberto de ciclos JÁ ENCERRADOS (anteriores ao ciclo atual real) = dinheiro a receber ou vínculo esquecido
+const pend=Object.entries(SPLITS).flatMap(([tid,arr])=>arr.map(s=>({...s,parent:TX.find(t=>t.id===tid)}))).filter(s=>s.parent&&!s.parent.deleted&&!s.paid_tx_id&&(s.parent.date||'')<atual.from);
+if(!pend.length){el.innerHTML='';return;}
+const porPessoa={};
+pend.forEach(s=>{const k=s.people?.name||'?';if(!porPessoa[k])porPessoa[k]={n:0,total:0,antiga:'9999-12-31'};porPessoa[k].n++;porPessoa[k].total+=Number(s.amount);if((s.parent.date||'')<porPessoa[k].antiga)porPessoa[k].antiga=s.parent.date||'';});
+el.innerHTML=`<div class="card" style="border:1px solid var(--gold)">
+<div class="label" style="color:var(--gold)">⚠ Divisões a receber (ciclos encerrados)</div>
+<div class="msg" style="margin-top:0">Divisões de ciclos já fechados ainda sem recebimento vinculado — ou falta receber, ou falta vincular o Pix (÷↩ na transação do recebimento).</div>
+${Object.entries(porPessoa).map(([nome,g])=>`<div class="row" style="font-size:13px;margin-top:8px"><span><b>${nome}</b> <span class="dim" style="font-size:11px">· ${g.n} divisão(ões) · mais antiga ${g.antiga.split('-').reverse().join('/')}</span></span><span class="mono gold">${fmt(g.total)}</span></div>`).join('')}
+</div>`;
 }
 function renderRitmo(){
 const el=$('ritmo');if(!el)return;
@@ -1575,7 +1832,7 @@ const modal=$('modal-linksplit');
 const allSplits=Object.entries(SPLITS).flatMap(([tid,arr])=>arr.map(s=>({...s,parent:TX.find(t=>t.id===tid)}))).filter(s=>s.parent&&!s.parent.deleted);
 const linked=allSplits.filter(s=>s.paid_tx_id===txId);
 const unpaid=allSplits.filter(s=>!s.paid_tx_id).sort((a,b)=>(b.parent.date||'').localeCompare(a.parent.date||''));
-$('linksplit-atual').innerHTML=linked.length?'<div class="label" style="margin-top:8px">Já vinculado a:</div>'+linked.map(s=>`<div class="row" style="font-size:12px;margin-top:6px"><span>${s.people?.name||'?'} — ${fmt(s.amount)} <span class="dim">(${s.parent.desc}, ${(s.parent.date||'').split('-').reverse().join('/')})</span></span><button class="btn-sm" style="color:var(--red)" onclick="unlinkSplit('${s.id}')">Desvincular</button></div>`).join(''):'';
+$('linksplit-atual').innerHTML=linked.length?'<div class="label" style="margin-top:8px">Já vinculado a:</div>'+linked.map(s=>`<div class="row" style="font-size:12px;margin-top:6px"><span>${s.people?.name||'?'} — ${fmt(s.amount)} <span class="dim">(${s.parent.desc}, ${(s.parent.date||'').split('-').reverse().join('/')})</span></span><button class="btn-sm" style="color:var(--red)" onclick="unlinkSplit('${s.id}')">Desvincular</button></div>`).join('')+`<div style="margin-top:6px"><button class="btn-sm" style="color:var(--red)" onclick="unlinkAllFromTx('${txId}')">Desvincular todas (${linked.length}) deste recebimento</button></div>`:'';
 // vínculo em lote por pessoa E ciclo (11→10): o Pix do acerto quita o pacote do ciclo fechado
 function cicloDe(dateStr){
 if(!dateStr)return{key:'sem-data',label:'sem data'};
@@ -1590,18 +1847,21 @@ const grupos={};
 unpaid.forEach(s=>{
 const cic=cicloDe(s.parent.date);
 const k=(s.person_id||'?')+'|'+cic.key;
-if(!grupos[k])grupos[k]={name:s.people?.name||'?',ciclo:cic.label,cicloKey:cic.key,ids:[],total:0};
-grupos[k].ids.push(s.id);grupos[k].total+=Number(s.amount);
+if(!grupos[k])grupos[k]={name:s.people?.name||'?',ciclo:cic.label,cicloKey:cic.key,ids:[],itens:[],total:0};
+grupos[k].ids.push(s.id);grupos[k].itens.push({id:s.id,amount:Number(s.amount),date:s.parent.date||''});grupos[k].total+=Number(s.amount);
 });
 const gList=Object.values(grupos).sort((a,b)=>a.name.localeCompare(b.name,'pt-BR')||b.cicloKey.localeCompare(a.cicloKey));
 window.__LINK_GROUPS=gList;
 const bulk=gList.map((g,gi)=>{
 const diff=g.total-Number(tx.value);
-const diffNote=Math.abs(diff)<0.01?'<span class="green" style="font-size:10px">soma igual ao recebido ✓</span>':`<span class="dim" style="font-size:10px">recebido ${fmt(tx.value)} · diferença ${fmt(diff)}</span>`;
+const diffNote=Math.abs(diff)<0.05?'<span class="green" style="font-size:10px">soma igual ao recebido ✓</span>':`<span class="dim" style="font-size:10px">recebido ${fmt(tx.value)} · diferença ${fmt(diff)}</span>`;
+// pagamento parcial: recebido cobre só parte do grupo -> vincula as mais antigas até o valor, deixa o resto em aberto pro próximo recebimento
+const parcial=diff>0.05;
+const btns=parcial?`<button class="btn-sm" style="margin-top:6px;color:var(--green);border-color:var(--green)" onclick="linkSplitAll('${txId}',${gi},true)">✓ Vincular até ${fmt(tx.value)} (parcial, mais antigas primeiro)</button> <button class="btn-sm" style="margin-top:6px" onclick="linkSplitAll('${txId}',${gi})">vincular todas mesmo assim</button>`:`<button class="btn-sm" style="margin-top:6px;color:var(--green);border-color:var(--green)" onclick="linkSplitAll('${txId}',${gi})">✓ Vincular estas ${g.ids.length}</button>`;
 return `<div style="margin-top:8px;padding:8px;border:1px solid var(--line);border-radius:8px">
 <div class="row" style="font-size:12px"><b>${g.name} · ciclo ${g.ciclo}</b><span class="mono">${g.ids.length} divisões · ${fmt(g.total)}</span></div>
 <div style="margin-top:2px">${diffNote}</div>
-<button class="btn-sm" style="margin-top:6px;color:var(--green);border-color:var(--green)" onclick="linkSplitAll('${txId}',${gi})">✓ Vincular estas ${g.ids.length}</button>
+${btns}
 </div>`;
 }).join('');
 $('linksplit-list').innerHTML='<div class="label" style="margin-top:4px">Divisões em aberto ('+fmt(tx.value)+' recebidos):</div>'+(unpaid.length?bulk+'<div class="msg" style="margin-top:8px">Ou vincule individualmente:</div>'+unpaid.map(s=>{
@@ -1613,12 +1873,49 @@ return `<div class="row" style="font-size:12px;margin-top:6px;align-items:center
 }).join(''):'<div class="msg">Nenhuma divisão em aberto. Se a transação original ainda não chegou, valide este recebimento como Interna e vincule depois.</div>');
 modal.classList.remove('hidden');
 };
-window.linkSplitAll=async(txId,gi)=>{
+window.linkSplitAll=async(txId,gi,parcial)=>{
 const g=(window.__LINK_GROUPS||[])[gi];
 if(!g||!g.ids.length)return;
-if(!confirm(`Vincular as ${g.ids.length} divisões de ${g.name} do ciclo ${g.ciclo} (total ${fmt(g.total)}) a este recebimento? Todas ficam marcadas como pagas e a transação vira Interna.`))return;
-await sb.from('transaction_splits').update({paid_tx_id:txId}).in('id',g.ids);
+const tx=TX.find(t=>t.id===txId);
+let ids=g.ids,soma=g.total;
+if(parcial&&tx){
+// encontra a COMBINAÇÃO de divisões que melhor fecha com o valor recebido (subset-sum exato em centavos)
+const cap=Math.round((Number(tx.value)+0.05)*100);
+const its=g.itens.slice();
+ids=[];soma=0;
+if(its.length<=40&&cap<=2000000){
+const from=new Int32Array(cap+1).fill(-1);
+// sentinela: soma 0 alcançável
+const START=-2;from[0]=START;
+for(let i=0;i<its.length;i++){
+const ci=Math.round(its[i].amount*100);
+if(ci<=0||ci>cap)continue;
+for(let s=cap;s>=ci;s--){
+if(from[s]===-1&&from[s-ci]!==-1)from[s]=i;
+}
+}
+let best=0;
+for(let s=cap;s>0;s--){if(from[s]!==-1){best=s;break;}}
+let s=best;
+while(s>0&&from[s]>=0){const i=from[s];ids.push(its[i].id);s-=Math.round(its[i].amount*100);}
+soma=Math.round(ids.reduce((t,id)=>t+Number(its.find(x=>x.id===id).amount)*100,0))/100;
+}else{
+// fallback pra listas enormes: mais antigas primeiro
+const orden=its.sort((a,b)=>(a.date||'').localeCompare(b.date||''));
+for(const it of orden){if(soma+it.amount<=Number(tx.value)+0.05){ids.push(it.id);soma+=it.amount;}}
+}
+if(!ids.length){alert('Nenhuma combinação de divisões cabe no valor recebido — vincule individualmente.');return;}
+}
+const resto=g.total-soma;
+if(!confirm(`Vincular ${ids.length} divisões de ${g.name} (${fmt(soma)}) a este recebimento?${resto>0.01?` Ficam em aberto ${fmt(resto)} pra vincular ao próximo recebimento.`:''} A transação vira Interna.`))return;
+await sb.from('transaction_splits').update({paid_tx_id:txId}).in('id',ids);
 await sb.from('transactions').update({internal:true}).eq('id',txId);
+$('modal-linksplit').classList.add('hidden');
+await load();
+};
+window.unlinkAllFromTx=async(txId)=>{
+if(!confirm('Desvincular TODAS as divisões deste recebimento? Elas voltam pra "em aberto" (útil pra redistribuir entre dois recebimentos parciais).'))return;
+await sb.from('transaction_splits').update({paid_tx_id:null}).eq('paid_tx_id',txId);
 $('modal-linksplit').classList.add('hidden');
 await load();
 };
