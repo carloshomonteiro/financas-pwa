@@ -1025,18 +1025,19 @@ ${obsHtml}
 const previstoCiclo=Number(chk?.valor_previsto??f.amount);
 abertoTotal+=previstoCiclo;abertoQtd++;previstoEfetivo+=previstoCiclo;
 // detecção automática: transação do período parecida em descrição ou valor
-let best=null,bestScore=0;
+let best=null,bestScore=0,bestSaldo=0;
 mtx.filter(t=>t.type==='expense'&&!t.internal).forEach(t=>{
 const sim=descSim(t.desc,f.desc);
-const valClose=Math.abs(Number(t.value)-previstoCiclo)/Math.max(previstoCiclo,1)<=0.15;
+const saldoT=Math.max(0,saldoOf(t)); // sua parte após divisões
+const valClose=Math.abs(saldoT-previstoCiclo)/Math.max(previstoCiclo,1)<=0.15;
 let score=0;
 if(sim>=0.35)score+=sim*2;
 if(valClose)score+=1;
-if(Math.abs(Number(t.value)-previstoCiclo)<0.01)score+=1;
-if(score>bestScore){bestScore=score;best=t;}
+if(Math.abs(saldoT-previstoCiclo)<0.01)score+=1;
+if(score>bestScore){bestScore=score;best=t;bestSaldo=saldoT;}
 });
 const detectado=(best&&bestScore>=1);
-const valPre=detectado?Number(best.value).toFixed(2):previstoCiclo.toFixed(2);
+const valPre=detectado?bestSaldo.toFixed(2):previstoCiclo.toFixed(2);
 const datePre=detectado?(best.date||hoje):hoje;
 const ajusteNote=(chk&&chk.valor_previsto!=null&&Math.abs(Number(chk.valor_previsto)-Number(f.amount))>0.009)?` <span class="dim" style="font-size:10px">(plano: ${fmt(f.amount)})</span>`:'';
 const sugestao=detectado?`<div class="dim" style="font-size:11px;margin-top:4px">pré-preenchido da transação: ${best.desc} · ${(best.date||'').split('-').reverse().join('/')}</div>`:'';
@@ -1106,11 +1107,14 @@ await load();
 window.fixedLinkOpen=(i)=>{
 const f=FC[i];if(!f)return;
 const mtx2=TX.filter(t=>!t.deleted&&t.validated!==false&&t.type==='expense'&&!t.internal&&(t.date||'')>=PERIOD.from&&(t.date||'')<=PERIOD.to);
-const cands=mtx2.map(t=>({t,score:descSim(t.desc,f.desc)*2+(t.nature==='fixa'?0.5:0)-Math.abs(Number(t.value)-Number(f.amount))/Math.max(Number(f.amount),1)*0.3})).sort((a,b)=>b.score-a.score).slice(0,12);
-$('fixedlink-list').innerHTML='<div class="msg" style="margin-top:0">Conta: <b>'+f.desc+'</b> (previsto '+fmt(f.amount)+')</div>'+(cands.length?cands.map(cd=>`<div class="row" style="font-size:12px;margin-top:8px;align-items:center;gap:6px">
-<span style="flex:1;min-width:0"><b>${cd.t.desc}</b><br><span class="dim">${(cd.t.date||'').split('-').reverse().join('/')} · ${fmt(cd.t.value)}${cd.t.nature==='fixa'?' · fixa':''}</span></span>
+const cands=mtx2.map(t=>{const saldo=saldoOf(t);return{t,saldo,score:descSim(t.desc,f.desc)*2+(t.nature==='fixa'?0.5:0)-Math.abs(saldo-Number(f.amount))/Math.max(Number(f.amount),1)*0.3};}).sort((a,b)=>b.score-a.score).slice(0,12);
+$('fixedlink-list').innerHTML='<div class="msg" style="margin-top:0">Conta: <b>'+f.desc+'</b> (previsto '+fmt(f.amount)+') — o vínculo usa o <b>saldo após divisões</b> (sua parte).</div>'+(cands.length?cands.map(cd=>{
+const temDiv=Math.abs(cd.saldo-Number(cd.t.value))>0.009;
+return `<div class="row" style="font-size:12px;margin-top:8px;align-items:center;gap:6px">
+<span style="flex:1;min-width:0"><b>${cd.t.desc}</b><br><span class="dim">${(cd.t.date||'').split('-').reverse().join('/')} · ${temDiv?`total ${fmt(cd.t.value)} · <b>sua parte ${fmt(cd.saldo)}</b>`:fmt(cd.t.value)}${cd.t.nature==='fixa'?' · fixa':''}</span></span>
 <button class="btn-sm" onclick="fixedLinkConfirm(${i},'${cd.t.id}')">Vincular</button>
-</div>`).join(''):'<div class="msg">Nenhuma despesa no período.</div>');
+</div>`;
+}).join(''):'<div class="msg">Nenhuma despesa no período.</div>');
 $('modal-fixedlink').classList.remove('hidden');
 };
 window.fixedLinkConfirm=async(i,txId)=>{
@@ -1118,8 +1122,9 @@ const f=FC[i];const t=TX.find(x=>x.id===txId);
 if(!f||!t)return;
 $('modal-fixedlink').classList.add('hidden');
 const chk=FIXED_CHECKS.find(k=>k.cycle_from===PERIOD.from&&k.forecast_desc===f.desc);
-if(chk)await sb.from('fixed_checks').update({valor:Number(t.value),paid_date:t.date,tx_id:txId,status:'pago'}).eq('id',chk.id);
-else await sb.from('fixed_checks').insert({cycle_from:PERIOD.from,forecast_desc:f.desc,valor:Number(t.value),paid_date:t.date,tx_id:txId,status:'pago'});
+const valorLiq=Math.max(0,saldoOf(t)); // saldo após divisões: só a sua parte pesa na conta fixa
+if(chk)await sb.from('fixed_checks').update({valor:valorLiq,paid_date:t.date,tx_id:txId,status:'pago'}).eq('id',chk.id);
+else await sb.from('fixed_checks').insert({cycle_from:PERIOD.from,forecast_desc:f.desc,valor:valorLiq,paid_date:t.date,tx_id:txId,status:'pago'});
 await load();
 };
 $('btn-close-fixedlink').onclick=()=>$('modal-fixedlink').classList.add('hidden');
