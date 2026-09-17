@@ -1054,6 +1054,7 @@ const alvoValor=last?Number(last.valor):previstoCiclo;
 const alvoDia=last&&last.paid_date?Number(last.paid_date.slice(8,10)):null;
 let best=null,bestScore=0,bestSaldo=0,bestWhy='';
 mtxFC.filter(t=>t.type==='expense'&&!t.internal).forEach(t=>{
+if(FIXED_CHECKS.some(k=>k.cycle_from===FC_PERIOD.from&&k.tx_id===t.id))return; // já vinculada a alguma conta neste mês
 const saldoT=Math.max(0,saldoOf(t));
 const simF=descSim(t.desc,f.desc);
 const simL=lastTx?descSim(t.desc,lastTx.desc):0;
@@ -1074,54 +1075,66 @@ if(score>bestScore){bestScore=score;best=t;bestSaldo=saldoT;bestWhy=why.join(' +
 return (best&&bestScore>=2.4)?{t:best,saldo:bestSaldo,why:bestWhy}:null;
 }
 const linhas=FCa.map((f,i)=>{
-const chk=FIXED_CHECKS.find(k=>k.cycle_from===FC_PERIOD.from&&k.forecast_desc===f.desc);
-const aberto=window.__FC_OPEN===i;
-const obsDot=chk&&chk.obs?' 📝':'';
+const checks=FIXED_CHECKS.filter(k=>k.cycle_from===FC_PERIOD.from&&k.forecast_desc===f.desc);
+const meta=checks.find(k=>Number(k.ocorrencia||0)===0)||null;
+const pagos=checks.filter(k=>k.status==='pago'&&Number(k.ocorrencia||0)>0).sort((a,b)=>(a.ocorrencia||1)-(b.ocorrencia||1));
+const vezes=Math.max(1,Number(f.vezes||1));
+const mensal=Number(meta?.valor_previsto??f.amount);
+const sumPago=pagos.reduce((s,k)=>s+Number(k.valor||0),0);
+const dispensada=!!(meta&&meta.status==='dispensado');
+const abertoRow=window.__FC_OPEN===i;
+const obsDot=meta&&meta.obs?' 📝':'';
+const completa=!dispensada&&(pagos.length>=vezes||sumPago>=mensal-0.009);
 let statusIcon,valHtml,sub='',det='';
-if(chk&&chk.status==='dispensado'){
+const pagosList=pagos.map(p=>`<div class="row" style="font-size:11px;margin-top:6px;align-items:center"><span class="dim">✓ ${vezes>1?(p.ocorrencia+'ª · '):''}pago em ${(p.paid_date||'').split('-').reverse().join('/')}${p.tx_id?' · da transação':''}</span><span style="white-space:nowrap"><span class="mono green">${fmt(p.valor)}</span> <button class="btn-sm" onclick="fixedCheckUndo('${p.id}')">✕</button></span></div>`).join('');
+if(dispensada){
 dispQtd++;
 statusIcon='<span class="dim">🚫</span>';
-valHtml='<span class="dim mono" style="text-decoration:line-through;font-size:12px">'+fmt(chk.valor_previsto??f.amount)+'</span>';
-sub='dispensada neste ciclo';
-det=`<div class="row" style="margin-top:8px"><span class="dim" style="font-size:11px">${chk.obs||''}</span><button class="btn-sm" onclick="fixedCheckUndo('${chk.id}')">reativar</button></div>`;
-}else if(chk&&chk.status!=='previsto'){
-pagasQtd++;pagoTotal+=Number(chk.valor||0);previstoEfetivo+=Number(chk.valor_previsto??f.amount);
+valHtml='<span class="dim mono" style="text-decoration:line-through;font-size:12px">'+fmt(mensal)+'</span>';
+sub='dispensada neste mês';
+det=`<div class="row" style="margin-top:8px"><span class="dim" style="font-size:11px">${meta.obs||''}</span><button class="btn-sm" onclick="fixedCheckUndo('${meta.id}')">reativar</button></div>`;
+}else if(completa){
+pagasQtd++;pagoTotal+=sumPago;previstoEfetivo+=mensal;
 statusIcon='<span class="green">✓</span>';
-valHtml='<span class="mono green">'+fmt(chk.valor)+'</span>';
-sub='pago em '+(chk.paid_date||'').split('-').reverse().join('/');
-const dif=Number(chk.valor||0)-Number(chk.valor_previsto??f.amount);
-det=`<div class="row" style="margin-top:8px;font-size:11px;align-items:center"><span class="dim" style="flex:1">${chk.tx_id?'vinculado à transação':''}${Math.abs(dif)>0.009?' · previsto era '+fmt(chk.valor_previsto??f.amount):''}${chk.obs?' · 📝 '+chk.obs:''}</span><span style="white-space:nowrap"><button class="btn-sm" onclick="fixedCheckEdit(${i})">✏️</button> <button class="btn-sm" onclick="fixedCheckUndo('${chk.id}')">desfazer</button></span></div>`;
+valHtml='<span class="mono green">'+fmt(sumPago)+'</span>';
+sub=vezes>1?(pagos.length+'× pagas · última em '+((pagos[pagos.length-1]||{}).paid_date||'').split('-').reverse().join('/')):('pago em '+((pagos[0]||{}).paid_date||'').split('-').reverse().join('/'));
+det=pagosList+`<div class="row" style="margin-top:8px;font-size:11px"><span class="dim">${Math.abs(sumPago-mensal)>0.009?'previsto era '+fmt(mensal):''}${meta&&meta.obs?' · 📝 '+meta.obs:''}</span><button class="btn-sm" onclick="fixedCheckEdit(${i})">✏️</button></div>`;
 }else{
-const previstoCiclo=Number(chk?.valor_previsto??f.amount);
-abertoTotal+=previstoCiclo;abertoQtd++;previstoEfetivo+=previstoCiclo;
-const sug=detectFixedTx(f,previstoCiclo);
-statusIcon=sug?'<span class="gold">⚡</span>':'<span class="dim">○</span>';
-valHtml='<span class="mono dim" style="font-size:12px">'+fmt(previstoCiclo)+'</span>';
-sub=sug?('⚡ sugestão encontrada — toque pra conferir'):'em aberto';
-const valPre=(sug?sug.saldo:previstoCiclo).toFixed(2);
+// em aberto ou parcialmente paga
+pagoTotal+=sumPago;previstoEfetivo+=mensal;
+const resta=Math.max(0,mensal-sumPago);
+abertoTotal+=resta;abertoQtd++;
+const proxValor=(vezes-pagos.length)>0?resta/(vezes-pagos.length):resta;
+const sug=detectFixedTx(f,proxValor);
+statusIcon=pagos.length?'<span class="gold">◐</span>':(sug?'<span class="gold">⚡</span>':'<span class="dim">○</span>');
+valHtml='<span class="mono dim" style="font-size:12px">'+(pagos.length?fmt(sumPago)+' / ':'')+fmt(mensal)+'</span>';
+sub=pagos.length?(pagos.length+' de '+vezes+' pagas · faltam '+fmt(resta)):(sug?'⚡ sugestão encontrada — toque pra conferir':(vezes>1?('0 de '+vezes+' pagas'):'em aberto'));
+const valPre=(sug?sug.saldo:proxValor).toFixed(2);
 const datePre=sug?(sug.t.date||hojeFC):hojeFC;
+const temDivSug=sug&&Math.abs(sug.saldo-Number(sug.t.value))>0.009;
 det=`
-${sug?`<div style="font-size:11px;margin-top:8px;padding:6px 8px;border:1px solid rgba(231,188,85,.35);border-radius:8px"><span class="gold">⚡</span> ${sug.t.desc} · ${(sug.t.date||'').split('-').reverse().join('/')} · <b class="mono">${fmt(sug.saldo)}</b><br><span class="dim">bateu por: ${sug.why}${sug.t.payment_method?' · '+sug.t.payment_method:''}</span></div>`:''}
-${chk&&chk.obs?`<div class="dim" style="font-size:11px;margin-top:4px">📝 ${chk.obs}</div>`:''}
+${pagosList}
+${sug?`<div style="font-size:11px;margin-top:8px;padding:6px 8px;border:1px solid rgba(231,188,85,.35);border-radius:8px"><span class="gold">⚡</span> ${sug.t.desc} · ${(sug.t.date||'').split('-').reverse().join('/')} · <b class="mono">${fmt(sug.saldo)}</b>${temDivSug?' <span class="dim">(total '+fmt(sug.t.value)+' — sua parte após divisão)</span>':''}<br><span class="dim">bateu por: ${sug.why}${sug.t.payment_method?' · '+sug.t.payment_method:''}</span></div>`:''}
+${meta&&meta.obs?`<div class="dim" style="font-size:11px;margin-top:4px">📝 ${meta.obs}</div>`:''}
 <input type="hidden" id="fcv-tx-${i}" value="${sug?sug.t.id:''}">
 <div class="row" style="font-size:11px;margin-top:8px;gap:6px;align-items:center">
 <input type="number" step="0.01" id="fcv-val-${i}" value="${valPre}" class="mono" style="width:90px;margin-top:0;text-align:right">
 <input type="date" id="fcv-date-${i}" value="${datePre}" style="flex:1;margin-top:0">
 </div>
 <div class="row" style="gap:6px;margin-top:8px">
-<button class="btn-sm" style="color:var(--green);border-color:var(--green);flex:2" onclick="fixedCheckPay(${i})">✓ Confirmar</button>
-<button class="btn-sm" title="Vincular a transação do período" onclick="fixedLinkOpen(${i})">🔗</button>
+<button class="btn-sm" style="color:var(--green);border-color:var(--green);flex:2" onclick="fixedCheckPay(${i})">✓ Confirmar${vezes>1?' ('+(pagos.length+1)+'ª de '+vezes+')':''}</button>
+<button class="btn-sm" title="Vincular a transação" onclick="fixedLinkOpen(${i})">🔗</button>
 <button class="btn-sm" title="Editar previsão/observação" onclick="fixedCheckEdit(${i})">✏️</button>
-<button class="btn-sm" title="Dispensar neste ciclo" style="color:var(--red)" onclick="fixedCheckSkip(${i})">🚫</button>
+<button class="btn-sm" title="Dispensar neste mês" style="color:var(--red)" onclick="fixedCheckSkip(${i})">🚫</button>
 </div>`;
 }
 return `<div style="border-bottom:1px solid var(--line);padding:9px 2px;cursor:pointer" onclick="fcToggle(${i})">
 <div class="row" style="font-size:13px;align-items:center;gap:8px">
 <span style="width:18px;text-align:center;flex:none">${statusIcon}</span>
-<span style="flex:1;min-width:0"><b>${f.desc}</b>${obsDot}<br><span class="dim" style="font-size:10px">${sub}</span></span>
+<span style="flex:1;min-width:0"><b>${f.desc}</b>${vezes>1?' <span class="dim" style="font-size:10px">'+vezes+'×/mês</span>':''}${obsDot}<br><span class="dim" style="font-size:10px">${sub}</span></span>
 ${valHtml}
 </div>
-<div class="fc-det" style="display:${aberto?'block':'none'}" onclick="event.stopPropagation()">${det}</div>
+<div class="fc-det" style="display:${abertoRow?'block':'none'}" onclick="event.stopPropagation()">${det}</div>
 </div>`;
 }).join('');
 const totalContas=FCa.length;
@@ -1151,30 +1164,26 @@ renderForecasts();
 };
 window.fixedCheckSkip=async(i)=>{
 const f=(window.__FCA||FC)[i];if(!f)return;
-if(!confirm(`Dispensar "${f.desc}" neste ciclo? Ela sai do previsto e do em aberto — só neste período.`))return;
-const chk=FIXED_CHECKS.find(k=>k.cycle_from===FC_PERIOD.from&&k.forecast_desc===f.desc);
-if(chk)await sb.from('fixed_checks').update({status:'dispensado'}).eq('id',chk.id);
-else await sb.from('fixed_checks').insert({cycle_from:FC_PERIOD.from,forecast_desc:f.desc,status:'dispensado'});
+const pagos=FIXED_CHECKS.filter(k=>k.cycle_from===FC_PERIOD.from&&k.forecast_desc===f.desc&&k.status==='pago'&&Number(k.ocorrencia||0)>0);
+if(pagos.length){alert('Esta conta já tem pagamento registrado no mês — desfaça os pagamentos antes de dispensar.');return;}
+if(!confirm(`Dispensar "${f.desc}" neste mês? Ela sai do previsto e do em aberto — só neste mês.`))return;
+const meta=FIXED_CHECKS.find(k=>k.cycle_from===FC_PERIOD.from&&k.forecast_desc===f.desc&&Number(k.ocorrencia||0)===0);
+if(meta)await sb.from('fixed_checks').update({status:'dispensado'}).eq('id',meta.id);
+else await sb.from('fixed_checks').insert({cycle_from:FC_PERIOD.from,forecast_desc:f.desc,status:'dispensado',ocorrencia:0});
 await load();
 };
 window.fixedCheckEdit=async(i)=>{
 const f=(window.__FCA||FC)[i];if(!f)return;
-const chk=FIXED_CHECKS.find(k=>k.cycle_from===FC_PERIOD.from&&k.forecast_desc===f.desc);
-const pago=chk&&chk.status==='pago';
-const valAtual=pago?Number(chk.valor):Number(chk?.valor_previsto??f.amount);
-const novoValStr=prompt(pago?'Valor pago (R$):':'Valor previsto neste ciclo (R$):',valAtual.toFixed(2));
+const meta=FIXED_CHECKS.find(k=>k.cycle_from===FC_PERIOD.from&&k.forecast_desc===f.desc&&Number(k.ocorrencia||0)===0);
+const valAtual=Number(meta?.valor_previsto??f.amount);
+const novoValStr=prompt('Valor previsto TOTAL neste mês (R$)'+(Number(f.vezes||1)>1?' — soma das '+f.vezes+' vezes':'')+':',valAtual.toFixed(2));
 if(novoValStr===null)return;
 const novoVal=Number(novoValStr.replace(',','.'));
 if(isNaN(novoVal)){alert('Valor inválido');return;}
-const novaObs=prompt('Observação (deixe vazio pra limpar):',chk?.obs||'');
+const novaObs=prompt('Observação (deixe vazio pra limpar):',meta?.obs||'');
 if(novaObs===null)return;
-if(pago){
-await sb.from('fixed_checks').update({valor:novoVal,obs:novaObs||null}).eq('id',chk.id);
-}else if(chk){
-await sb.from('fixed_checks').update({valor_previsto:novoVal,obs:novaObs||null,status:'previsto'}).eq('id',chk.id);
-}else{
-await sb.from('fixed_checks').insert({cycle_from:FC_PERIOD.from,forecast_desc:f.desc,status:'previsto',valor_previsto:novoVal,obs:novaObs||null});
-}
+if(meta)await sb.from('fixed_checks').update({valor_previsto:novoVal,obs:novaObs||null}).eq('id',meta.id);
+else await sb.from('fixed_checks').insert({cycle_from:FC_PERIOD.from,forecast_desc:f.desc,status:'previsto',valor_previsto:novoVal,obs:novaObs||null,ocorrencia:0});
 await load();
 };
 window.fixedCheckPay=async(i)=>{
@@ -1182,9 +1191,9 @@ const f=(window.__FCA||FC)[i];if(!f)return;
 const val=Number(document.getElementById('fcv-val-'+i)?.value||f.amount);
 const dt=document.getElementById('fcv-date-'+i)?.value||new Date().toISOString().slice(0,10);
 const txId=document.getElementById('fcv-tx-'+i)?.value||null;
-const chk=FIXED_CHECKS.find(k=>k.cycle_from===FC_PERIOD.from&&k.forecast_desc===f.desc);
-if(chk)await sb.from('fixed_checks').update({valor:val,paid_date:dt,tx_id:txId||null,status:'pago'}).eq('id',chk.id);
-else await sb.from('fixed_checks').insert({cycle_from:FC_PERIOD.from,forecast_desc:f.desc,valor:val,paid_date:dt,tx_id:txId||null,status:'pago'});
+const pagos=FIXED_CHECKS.filter(k=>k.cycle_from===FC_PERIOD.from&&k.forecast_desc===f.desc&&k.status==='pago'&&Number(k.ocorrencia||0)>0);
+const prox=pagos.reduce((m,k)=>Math.max(m,Number(k.ocorrencia||1)),0)+1;
+await sb.from('fixed_checks').insert({cycle_from:FC_PERIOD.from,forecast_desc:f.desc,valor:val,paid_date:dt,tx_id:txId||null,status:'pago',ocorrencia:prox});
 await load();
 };
 window.fixedLinkOpen=(i)=>{
@@ -1204,18 +1213,18 @@ window.fixedLinkConfirm=async(i,txId)=>{
 const f=(window.__FCA||FC)[i];const t=TX.find(x=>x.id===txId);
 if(!f||!t)return;
 $('modal-fixedlink').classList.add('hidden');
-const chk=FIXED_CHECKS.find(k=>k.cycle_from===FC_PERIOD.from&&k.forecast_desc===f.desc);
 const valorLiq=Math.max(0,saldoOf(t)); // saldo após divisões: só a sua parte pesa na conta fixa
-if(chk)await sb.from('fixed_checks').update({valor:valorLiq,paid_date:t.date,tx_id:txId,status:'pago'}).eq('id',chk.id);
-else await sb.from('fixed_checks').insert({cycle_from:FC_PERIOD.from,forecast_desc:f.desc,valor:valorLiq,paid_date:t.date,tx_id:txId,status:'pago'});
+const pagos=FIXED_CHECKS.filter(k=>k.cycle_from===FC_PERIOD.from&&k.forecast_desc===f.desc&&k.status==='pago'&&Number(k.ocorrencia||0)>0);
+const prox=pagos.reduce((m,k)=>Math.max(m,Number(k.ocorrencia||1)),0)+1;
+await sb.from('fixed_checks').insert({cycle_from:FC_PERIOD.from,forecast_desc:f.desc,valor:valorLiq,paid_date:t.date,tx_id:txId,status:'pago',ocorrencia:prox});
 await load();
 };
 $('btn-close-fixedlink').onclick=()=>$('modal-fixedlink').classList.add('hidden');
 window.fixedCheckUndo=async(id)=>{
 const chk=FIXED_CHECKS.find(k=>k.id===id);
-if(chk&&(chk.obs||chk.valor_previsto!=null)){
-// mantém o ajuste/observação do ciclo, só volta pra em aberto
-await sb.from('fixed_checks').update({status:'previsto',valor:null,paid_date:null,tx_id:null}).eq('id',id);
+if(chk&&Number(chk.ocorrencia||0)===0&&(chk.obs||chk.valor_previsto!=null)){
+// linha-meta com ajuste/observação: volta pra previsto sem perder as anotações
+await sb.from('fixed_checks').update({status:'previsto'}).eq('id',id);
 }else{
 await sb.from('fixed_checks').delete().eq('id',id);
 }
@@ -2107,16 +2116,17 @@ const ed=$(editId);if(!ed.classList.contains('hidden')){ed.classList.add('hidden
 const cycNow=table==='forecasts'?mesDe(new Date(Date.now()-new Date().getTimezoneOffset()*60000).toISOString().slice(0,10)).from:cicloAtual().from;
 const data=table==='forecasts'?FC.filter(f=>(!f.valid_from||f.valid_from<=cycNow)&&(!f.valid_until||f.valid_until>=cycNow)):INC;
 const removed=[];
-ed.innerHTML=data.map((r,i)=>`<div class="row fc-row" data-orig="${r.desc}" style="margin-top:6px"><input data-i="${i}" data-f="desc" value="${r.desc}" style="flex:2;margin-top:0;font-size:12px"><input data-i="${i}" data-f="amt" inputmode="decimal" value="${r.amount}" style="flex:1;margin-top:0;font-size:12px"><button class="btn-sm fc-del" style="color:var(--red)">✕</button></div>`).join('')+
-`<div class="row" style="margin-top:6px"><input id="${editId}-nd" placeholder="Nova descrição" style="flex:2;margin-top:0;font-size:12px"><input id="${editId}-na" placeholder="Valor" inputmode="decimal" style="flex:1;margin-top:0;font-size:12px"></div>`+
+const isFc=table==='forecasts';
+ed.innerHTML=(isFc?'<div class="dim" style="font-size:10px;margin-top:4px">descrição · valor mensal (sua parte) · × vezes/mês</div>':'')+data.map((r,i)=>`<div class="row fc-row" data-orig="${r.desc}" style="margin-top:6px"><input data-i="${i}" data-f="desc" value="${r.desc}" style="flex:2;margin-top:0;font-size:12px"><input data-i="${i}" data-f="amt" inputmode="decimal" value="${r.amount}" style="flex:1;margin-top:0;font-size:12px">${isFc?`<input data-i="${i}" data-f="vz" inputmode="numeric" value="${r.vezes||1}" title="vezes por mês" style="width:44px;margin-top:0;font-size:12px;text-align:center">`:''}<button class="btn-sm fc-del" style="color:var(--red)">✕</button></div>`).join('')+
+`<div class="row" style="margin-top:6px"><input id="${editId}-nd" placeholder="Nova descrição" style="flex:2;margin-top:0;font-size:12px"><input id="${editId}-na" placeholder="Valor" inputmode="decimal" style="flex:1;margin-top:0;font-size:12px">${isFc?`<input id="${editId}-nv" placeholder="×" inputmode="numeric" style="width:44px;margin-top:0;font-size:12px;text-align:center">`:''}</div>`+
 `<button class="btn" id="${editId}-save">Salvar</button>`;
 ed.classList.remove('hidden');
 ed.querySelectorAll('.fc-del').forEach(btn=>btn.onclick=()=>{const row=btn.closest('.fc-row');removed.push(row.dataset.orig);row.remove();});
 document.getElementById(`${editId}-save`).onclick=async()=>{
 const rows=[...ed.querySelectorAll('[data-i]')].reduce((acc,el)=>{const i=el.dataset.i;if(!acc[i])acc[i]={};acc[i][el.dataset.f]=el.value;return acc;},{});
-const updates=Object.values(rows).filter(r=>r.desc&&r.amt).map(r=>({desc:r.desc,amount:parseFloat((r.amt||'0').replace(',','.'))||0}));
+const updates=Object.values(rows).filter(r=>r.desc&&r.amt).map(r=>{const o={desc:r.desc,amount:parseFloat((r.amt||'0').replace(',','.'))||0};if(table==='forecasts')o.vezes=Math.max(1,parseInt(r.vz)||1);return o;});
 const nd=document.getElementById(`${editId}-nd`).value.trim();const na=document.getElementById(`${editId}-na`).value;
-if(nd&&na)updates.push({desc:nd,amount:parseFloat(na.replace(',','.'))||0});
+if(nd&&na){const o={desc:nd,amount:parseFloat(na.replace(',','.'))||0};if(table==='forecasts')o.vezes=Math.max(1,parseInt(document.getElementById(`${editId}-nv`)?.value)||1);updates.push(o);}
 if(table==='forecasts'){
 // versionamento: edições valem do ciclo ATUAL em diante; ciclos passados preservam o plano da época
 const ontem=addDaysStr(cycNow,-1);
