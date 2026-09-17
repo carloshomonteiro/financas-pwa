@@ -138,7 +138,7 @@ table.tx-table .split-badge{border-radius:99px;background:rgba(148,163,199,.14);
 </div>
 <div id="tab-painel">
 <div id="sync-status" class="hidden" style="background:var(--line);padding:10px 14px;margin-bottom:12px;border-radius:2px;font-size:12px"></div>
-<div class="card">
+<div class="card" id="period-card">
 <div class="label">Período</div>
 <div class="row" style="gap:8px;margin-top:4px">
 <input id="p-de" type="date" style="flex:1"><input id="p-ate" type="date" style="flex:1">
@@ -184,11 +184,7 @@ table.tx-table .split-badge{border-radius:99px;background:rgba(148,163,199,.14);
 </div>
 <div class="card">
 <div class="row"><div class="label">Controle mensal de contas fixas</div><button class="logout" id="btn-fc-edit">editar plano</button></div>
-<div class="row" style="margin-top:8px;align-items:center;gap:8px">
-<button class="btn-sm" onclick="fcCycleShift(-1)">◀</button>
-<span id="fc-cycle-label" class="mono" style="flex:1;text-align:center;font-size:13px">—</span>
-<button class="btn-sm" onclick="fcCycleShift(1)">▶</button>
-</div>
+
 <div class="msg" style="margin-top:0">Checklist do ciclo selecionado: o sistema detecta o pagamento nas transações do período e sugere — confirme com um toque, ou marque manualmente. Conta nova no meio do ano? Use "editar plano" que ela entra no controle a partir deste ciclo.</div>
 <div id="fc-view"></div><div id="fc-edit" class="hidden"></div>
 </div>
@@ -1005,12 +1001,8 @@ $('inc-view').innerHTML=INC.length?INC.map(i=>`<div class="row" style="font-size
 const fcTotal=FC.reduce((s,f)=>s+Number(f.amount),0);
 const mtx=TX.filter(t=>!t.deleted&&t.validated!==false&&(t.date||'')>=PERIOD.from&&(t.date||'')<=PERIOD.to);
 const hoje=new Date(Date.now()-new Date().getTimezoneOffset()*60000).toISOString().slice(0,10);
-// ciclo próprio do controle de fixas (independente do período do Painel), padrão = ciclo ATUAL
-if(!FC_PERIOD)FC_PERIOD=cicloAtual();
-if($('fc-cycle-label')){
-const atualTag=FC_PERIOD.from===cicloAtual().from?' (atual)':'';
-$('fc-cycle-label').textContent=FC_PERIOD.from.split('-').reverse().join('/').slice(0,5)+' → '+FC_PERIOD.to.split('-').reverse().join('/').slice(0,5)+atualTag;
-}
+// o controle de fixas segue o Período global (card compartilhado entre Painel e Previsões)
+FC_PERIOD=PERIOD;
 // plano vigente NESTE ciclo (vigência: mudanças no plano valem do ciclo da edição em diante)
 const FCa=FC.filter(f=>(!f.valid_from||f.valid_from<=FC_PERIOD.from)&&(!f.valid_until||f.valid_until>=FC_PERIOD.from));
 window.__FCA=FCa;
@@ -1115,12 +1107,6 @@ $('fc-view').innerHTML=FCa.length?`<div style="margin-bottom:8px">
 <div class="row" style="font-size:12px;margin-top:2px"><span class="dim">Em aberto</span><span class="mono ${abertoQtd?'red':'green'}">${abertoQtd?fmt(abertoTotal)+' ('+abertoQtd+')':'✓ tudo pago'}</span></div>
 </div>`+linhas:'<div class="msg">Sem plano de contas fixas — use "editar plano" pra criar.</div>';
 }
-window.fcCycleShift=(n)=>{
-if(!FC_PERIOD)FC_PERIOD=cicloAtual();
-FC_PERIOD=shiftPeriodStr(FC_PERIOD.from,n);
-window.__FC_OPEN=null;
-renderForecasts();
-};
 window.fcToggle=(i)=>{
 window.__FC_OPEN=window.__FC_OPEN===i?null:i;
 renderForecasts();
@@ -2230,7 +2216,12 @@ renderUsersList();
 }catch(e){$('invite-msg').innerHTML='<span class="red">Erro: '+e.message+'</span>';}
 $('btn-invite').disabled=false;
 };
-document.querySelector('.tabbar').onclick=e=>{const tab=e.target.closest('.tab')?.dataset.tab;if(!tab)return;['painel','previsoes','investimentos','validacao','gestao','perguntar'].forEach(t=>$('tab-'+t).classList.toggle('hidden',t!==tab));[...document.querySelectorAll('.tab')].forEach(b=>b.classList.toggle('on',b.dataset.tab===tab));if(tab==='gestao'&&MY_ROLE==='owner'){renderUsersList();renderConnectionsList();}};
+document.querySelector('.tabbar').onclick=e=>{const tab=e.target.closest('.tab')?.dataset.tab;if(!tab)return;['painel','previsoes','investimentos','validacao','gestao','perguntar'].forEach(t=>$('tab-'+t).classList.toggle('hidden',t!==tab));[...document.querySelectorAll('.tab')].forEach(b=>b.classList.toggle('on',b.dataset.tab===tab));
+// o card Período é compartilhado entre as abas atreladas ao ciclo (Painel e Previsões)
+const pc=$('period-card');
+if(pc&&tab==='painel')$('tab-painel').insertBefore(pc,$('sync-status').nextElementSibling);
+if(pc&&tab==='previsoes')$('tab-previsoes').insertBefore(pc,$('tab-previsoes').firstElementChild);
+if(tab==='gestao'&&MY_ROLE==='owner'){renderUsersList();renderConnectionsList();}};
 if('serviceWorker' in navigator)navigator.serviceWorker.register('sw.js').catch(()=>{});
 boot();
 </script>
