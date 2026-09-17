@@ -1025,7 +1025,7 @@ if(pmIgual){score+=0.7;why.push('mesma forma');}
 if(alvoDia&&t.date&&Math.abs(Number(t.date.slice(8,10))-alvoDia)<=5){score+=0.5;why.push('dia do mês');}
 if(score>bestScore){bestScore=score;best=t;bestSaldo=saldoT;bestWhy=why.join(' + ');}
 });
-return (best&&bestScore>=2.2)?{t:best,saldo:bestSaldo,why:bestWhy}:null;
+return (best&&bestScore>=2.4)?{t:best,saldo:bestSaldo,why:bestWhy}:null;
 }
 const linhas=FC.map((f,i)=>{
 const chk=FIXED_CHECKS.find(k=>k.cycle_from===PERIOD.from&&k.forecast_desc===f.desc);
@@ -1434,7 +1434,8 @@ function populateAcertoPessoa(){
 const sel=$('acerto-pessoa');if(!sel)return;
 sel.innerHTML=PEOPLE.map(p=>`<option value="${p.id}"${/d[eé]bora/i.test(p.name)?' selected':''}>${p.name}</option>`).join('');
 }
-function normTxt(s){return (s||'').toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g,'').replace(/[^a-z0-9 ]/g,' ').split(/\s+/).filter(w=>w.length>2);}
+const NORM_STOP=new Set(['pix','ted','doc','transferencia','transf','pagamento','pgto','pagto','debito','credito','boleto','compra','cartao','banco','conta','corrente','ltda','eireli','via']);
+function normTxt(s){return (s||'').toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g,'').replace(/[^a-z0-9 ]/g,' ').split(/\s+/).filter(w=>w.length>2&&!NORM_STOP.has(w));}
 function descSim(a,b){const ta=normTxt(a),tb=normTxt(b);if(!ta.length||!tb.length)return 0;const setB=new Set(tb);const inter=ta.filter(w=>setB.has(w)).length;return inter/Math.min(ta.length,tb.length);}
 let ACERTO=null;
 $('btn-acerto-upload').onclick=()=>$('file-acerto').click();
