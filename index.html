@@ -179,17 +179,21 @@ table.tx-table .split-badge{border-radius:99px;background:rgba(148,163,199,.14);
 </div>
 <div id="tab-previsoes" class="hidden">
 <div class="card">
+<div class="label">Mês de competência</div>
+<div class="row" style="margin-top:6px;align-items:center;gap:8px">
+<button class="btn-outline" onclick="fcMesShift(-1)" style="flex:1;margin-top:0">◀</button>
+<span id="fc-mes-label" class="mono" style="flex:2;text-align:center;font-size:15px;font-weight:700">—</span>
+<button class="btn-outline" onclick="fcMesShift(1)" style="flex:1;margin-top:0">▶</button>
+</div>
+<button class="btn-outline" id="btn-fc-mes-atual" style="margin-top:8px" onclick="fcMesAtual()">Mês atual</button>
+<div class="msg" style="margin-top:6px">Toda esta página segue o <b>mês-calendário</b> (competência das contas) — diferente do Painel, que segue o ciclo 11→10 da fatura.</div>
+</div>
+<div class="card">
 <div class="row"><div class="label">Previsão de receita (mensal)</div><button class="logout" id="btn-inc-edit">editar</button></div>
 <div id="inc-view"></div><div id="inc-edit" class="hidden"></div>
 </div>
 <div class="card">
 <div class="row"><div class="label">Controle mensal de contas fixas</div><button class="logout" id="btn-fc-edit">editar plano</button></div>
-<div class="row" style="margin-top:8px;align-items:center;gap:8px">
-<button class="btn-sm" onclick="fcMesShift(-1)">◀</button>
-<span id="fc-mes-label" class="mono" style="flex:1;text-align:center;font-size:13px">—</span>
-<button class="btn-sm" onclick="fcMesShift(1)">▶</button>
-</div>
-<div class="msg" style="margin-top:4px">Fixas seguem o <b>mês-calendário</b> (competência) — diferente das variáveis, que seguem o ciclo 11→10 da fatura.</div>
 
 <div class="msg" style="margin-top:0">Checklist do ciclo selecionado: o sistema detecta o pagamento nas transações do período e sugere — confirme com um toque, ou marque manualmente. Conta nova no meio do ano? Use "editar plano" que ela entra no controle a partir deste ciclo.</div>
 <div id="fc-view"></div><div id="fc-edit" class="hidden"></div>
@@ -1130,6 +1134,11 @@ $('fc-view').innerHTML=FCa.length?`<div style="margin-bottom:8px">
 <div class="row" style="font-size:12px;margin-top:2px"><span class="dim">Em aberto</span><span class="mono ${abertoQtd?'red':'green'}">${abertoQtd?fmt(abertoTotal)+' ('+abertoQtd+')':'✓ tudo pago'}</span></div>
 </div>`+linhas:'<div class="msg">Sem plano de contas fixas — use "editar plano" pra criar.</div>';
 }
+window.fcMesAtual=()=>{
+FC_MONTH=mesDe(new Date(Date.now()-new Date().getTimezoneOffset()*60000).toISOString().slice(0,10));
+window.__FC_OPEN=null;
+renderForecasts();
+};
 window.fcMesShift=(n)=>{
 if(!FC_MONTH)return;
 FC_MONTH=shiftMes(FC_MONTH.from,n);
@@ -2285,10 +2294,6 @@ renderUsersList();
 $('btn-invite').disabled=false;
 };
 document.querySelector('.tabbar').onclick=e=>{const tab=e.target.closest('.tab')?.dataset.tab;if(!tab)return;['painel','previsoes','investimentos','validacao','gestao','perguntar'].forEach(t=>$('tab-'+t).classList.toggle('hidden',t!==tab));[...document.querySelectorAll('.tab')].forEach(b=>b.classList.toggle('on',b.dataset.tab===tab));
-// o card Período é compartilhado entre as abas atreladas ao ciclo (Painel e Previsões)
-const pc=$('period-card');
-if(pc&&tab==='painel')$('tab-painel').insertBefore(pc,$('sync-status').nextElementSibling);
-if(pc&&tab==='previsoes')$('tab-previsoes').insertBefore(pc,$('tab-previsoes').firstElementChild);
 if(tab==='gestao'&&MY_ROLE==='owner'){renderUsersList();renderConnectionsList();}};
 if('serviceWorker' in navigator)navigator.serviceWorker.register('sw.js').catch(()=>{});
 boot();
