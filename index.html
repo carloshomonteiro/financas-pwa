@@ -184,6 +184,11 @@ table.tx-table .split-badge{border-radius:99px;background:rgba(148,163,199,.14);
 </div>
 <div class="card">
 <div class="row"><div class="label">Controle mensal de contas fixas</div><button class="logout" id="btn-fc-edit">editar plano</button></div>
+<div class="row" style="margin-top:8px;align-items:center;gap:8px">
+<button class="btn-sm" onclick="fcCycleShift(-1)">◀</button>
+<span id="fc-cycle-label" class="mono" style="flex:1;text-align:center;font-size:13px">—</span>
+<button class="btn-sm" onclick="fcCycleShift(1)">▶</button>
+</div>
 <div class="msg" style="margin-top:0">Checklist do ciclo selecionado: o sistema detecta o pagamento nas transações do período e sugere — confirme com um toque, ou marque manualmente. Conta nova no meio do ano? Use "editar plano" que ela entra no controle a partir deste ciclo.</div>
 <div id="fc-view"></div><div id="fc-edit" class="hidden"></div>
 </div>
@@ -439,6 +444,7 @@ let TX=[],GOALS={},FC=[],INC=[],PEOPLE=[],SPLITS={},AUDIT=[],PENDING=[],INVESTME
 function freshFilters(){return{desc:'',date:{from:'',to:''},value:{min:'',max:''},saldo:{min:'',max:''},type:new Set(),nature:new Set(),category:new Set(),payment_method:new Set(),split:'',internal:''};}
 let FILTERS=freshFilters();
 let SORT={key:'date',dir:'desc'};
+let FC_PERIOD=null;
 let CURRENT_MTX=[];
 function hasActiveFilters(){
 return !!(FILTERS.desc||FILTERS.date.from||FILTERS.date.to||FILTERS.value.min!==''||FILTERS.value.max!==''||FILTERS.saldo.min!==''||FILTERS.saldo.max!==''||FILTERS.type.size||FILTERS.nature.size||FILTERS.category.size||FILTERS.payment_method.size||FILTERS.split||FILTERS.internal);
@@ -999,6 +1005,17 @@ $('inc-view').innerHTML=INC.length?INC.map(i=>`<div class="row" style="font-size
 const fcTotal=FC.reduce((s,f)=>s+Number(f.amount),0);
 const mtx=TX.filter(t=>!t.deleted&&t.validated!==false&&(t.date||'')>=PERIOD.from&&(t.date||'')<=PERIOD.to);
 const hoje=new Date(Date.now()-new Date().getTimezoneOffset()*60000).toISOString().slice(0,10);
+// ciclo próprio do controle de fixas (independente do período do Painel), padrão = ciclo ATUAL
+if(!FC_PERIOD)FC_PERIOD=cicloAtual();
+if($('fc-cycle-label')){
+const atualTag=FC_PERIOD.from===cicloAtual().from?' (atual)':'';
+$('fc-cycle-label').textContent=FC_PERIOD.from.split('-').reverse().join('/').slice(0,5)+' → '+FC_PERIOD.to.split('-').reverse().join('/').slice(0,5)+atualTag;
+}
+// plano vigente NESTE ciclo (vigência: mudanças no plano valem do ciclo da edição em diante)
+const FCa=FC.filter(f=>(!f.valid_from||f.valid_from<=FC_PERIOD.from)&&(!f.valid_until||f.valid_until>=FC_PERIOD.from));
+window.__FCA=FCa;
+const mtxFC=TX.filter(t=>!t.deleted&&t.validated!==false&&(t.date||'')>=FC_PERIOD.from&&(t.date||'')<=FC_PERIOD.to);
+const hojeFC=(hoje>=FC_PERIOD.from&&hoje<=FC_PERIOD.to)?hoje:FC_PERIOD.from;
 let pagoTotal=0,abertoTotal=0,abertoQtd=0,previstoEfetivo=0,pagasQtd=0,dispQtd=0;
 // detecção contextual: usa o histórico da própria conta (último ciclo pago: valor, forma de pagamento e dia do mês)
 // e EXIGE evidência de nome — valor parecido sozinho não sugere mais nada
@@ -1011,13 +1028,13 @@ window.__DFMAP={n:TX.length,m};
 }
 const DF=window.__DFMAP.m;
 const temTokenRaro=(a,b)=>{const A=normTxt(a),B=new Set(normTxt(b));return A.some(w=>B.has(w)&&(DF.get(w)||0)<=3);};
-const hist=FIXED_CHECKS.filter(k=>k.forecast_desc===f.desc&&k.status==='pago'&&k.cycle_from<PERIOD.from).sort((a,b)=>(b.cycle_from||'').localeCompare(a.cycle_from||''));
+const hist=FIXED_CHECKS.filter(k=>k.forecast_desc===f.desc&&k.status==='pago'&&k.cycle_from<FC_PERIOD.from).sort((a,b)=>(b.cycle_from||'').localeCompare(a.cycle_from||''));
 const last=hist[0]||null;
 const lastTx=last&&last.tx_id?TX.find(t=>t.id===last.tx_id):null;
 const alvoValor=last?Number(last.valor):previstoCiclo;
 const alvoDia=last&&last.paid_date?Number(last.paid_date.slice(8,10)):null;
 let best=null,bestScore=0,bestSaldo=0,bestWhy='';
-mtx.filter(t=>t.type==='expense'&&!t.internal).forEach(t=>{
+mtxFC.filter(t=>t.type==='expense'&&!t.internal).forEach(t=>{
 const saldoT=Math.max(0,saldoOf(t));
 const simF=descSim(t.desc,f.desc);
 const simL=lastTx?descSim(t.desc,lastTx.desc):0;
@@ -1037,8 +1054,8 @@ if(score>bestScore){bestScore=score;best=t;bestSaldo=saldoT;bestWhy=why.join(' +
 });
 return (best&&bestScore>=2.4)?{t:best,saldo:bestSaldo,why:bestWhy}:null;
 }
-const linhas=FC.map((f,i)=>{
-const chk=FIXED_CHECKS.find(k=>k.cycle_from===PERIOD.from&&k.forecast_desc===f.desc);
+const linhas=FCa.map((f,i)=>{
+const chk=FIXED_CHECKS.find(k=>k.cycle_from===FC_PERIOD.from&&k.forecast_desc===f.desc);
 const aberto=window.__FC_OPEN===i;
 const obsDot=chk&&chk.obs?' 📝':'';
 let statusIcon,valHtml,sub='',det='';
@@ -1063,7 +1080,7 @@ statusIcon=sug?'<span class="gold">⚡</span>':'<span class="dim">○</span>';
 valHtml='<span class="mono dim" style="font-size:12px">'+fmt(previstoCiclo)+'</span>';
 sub=sug?('⚡ sugestão encontrada — toque pra conferir'):'em aberto';
 const valPre=(sug?sug.saldo:previstoCiclo).toFixed(2);
-const datePre=sug?(sug.t.date||hoje):hoje;
+const datePre=sug?(sug.t.date||hojeFC):hojeFC;
 det=`
 ${sug?`<div style="font-size:11px;margin-top:8px;padding:6px 8px;border:1px solid rgba(231,188,85,.35);border-radius:8px"><span class="gold">⚡</span> ${sug.t.desc} · ${(sug.t.date||'').split('-').reverse().join('/')} · <b class="mono">${fmt(sug.saldo)}</b><br><span class="dim">bateu por: ${sug.why}${sug.t.payment_method?' · '+sug.t.payment_method:''}</span></div>`:''}
 ${chk&&chk.obs?`<div class="dim" style="font-size:11px;margin-top:4px">📝 ${chk.obs}</div>`:''}
@@ -1088,9 +1105,9 @@ ${valHtml}
 <div class="fc-det" style="display:${aberto?'block':'none'}" onclick="event.stopPropagation()">${det}</div>
 </div>`;
 }).join('');
-const totalContas=FC.length;
+const totalContas=FCa.length;
 const pctPagas=totalContas-dispQtd>0?pagasQtd/(totalContas-dispQtd)*100:0;
-$('fc-view').innerHTML=FC.length?`<div style="margin-bottom:8px">
+$('fc-view').innerHTML=FCa.length?`<div style="margin-bottom:8px">
 <div class="row" style="font-size:12px"><span class="dim">Pagas <b>${pagasQtd}</b> de ${totalContas-dispQtd}${dispQtd?' · '+dispQtd+' dispensada(s)':''}</span><span class="mono dim">${pctPagas.toFixed(0)}%</span></div>
 <div class="bar-track" style="margin-top:4px"><div class="bar-fill" style="width:${pctPagas.toFixed(0)}%;background:linear-gradient(90deg,var(--green),#7CEDB6)"></div></div>
 <div class="row" style="font-size:12px;margin-top:8px"><span class="dim">Previsto no ciclo</span><span class="mono gold">${fmt(previstoEfetivo)}</span></div>
@@ -1098,21 +1115,27 @@ $('fc-view').innerHTML=FC.length?`<div style="margin-bottom:8px">
 <div class="row" style="font-size:12px;margin-top:2px"><span class="dim">Em aberto</span><span class="mono ${abertoQtd?'red':'green'}">${abertoQtd?fmt(abertoTotal)+' ('+abertoQtd+')':'✓ tudo pago'}</span></div>
 </div>`+linhas:'<div class="msg">Sem plano de contas fixas — use "editar plano" pra criar.</div>';
 }
+window.fcCycleShift=(n)=>{
+if(!FC_PERIOD)FC_PERIOD=cicloAtual();
+FC_PERIOD=shiftPeriodStr(FC_PERIOD.from,n);
+window.__FC_OPEN=null;
+renderForecasts();
+};
 window.fcToggle=(i)=>{
 window.__FC_OPEN=window.__FC_OPEN===i?null:i;
 renderForecasts();
 };
 window.fixedCheckSkip=async(i)=>{
-const f=FC[i];if(!f)return;
+const f=(window.__FCA||FC)[i];if(!f)return;
 if(!confirm(`Dispensar "${f.desc}" neste ciclo? Ela sai do previsto e do em aberto — só neste período.`))return;
-const chk=FIXED_CHECKS.find(k=>k.cycle_from===PERIOD.from&&k.forecast_desc===f.desc);
+const chk=FIXED_CHECKS.find(k=>k.cycle_from===FC_PERIOD.from&&k.forecast_desc===f.desc);
 if(chk)await sb.from('fixed_checks').update({status:'dispensado'}).eq('id',chk.id);
-else await sb.from('fixed_checks').insert({cycle_from:PERIOD.from,forecast_desc:f.desc,status:'dispensado'});
+else await sb.from('fixed_checks').insert({cycle_from:FC_PERIOD.from,forecast_desc:f.desc,status:'dispensado'});
 await load();
 };
 window.fixedCheckEdit=async(i)=>{
-const f=FC[i];if(!f)return;
-const chk=FIXED_CHECKS.find(k=>k.cycle_from===PERIOD.from&&k.forecast_desc===f.desc);
+const f=(window.__FCA||FC)[i];if(!f)return;
+const chk=FIXED_CHECKS.find(k=>k.cycle_from===FC_PERIOD.from&&k.forecast_desc===f.desc);
 const pago=chk&&chk.status==='pago';
 const valAtual=pago?Number(chk.valor):Number(chk?.valor_previsto??f.amount);
 const novoValStr=prompt(pago?'Valor pago (R$):':'Valor previsto neste ciclo (R$):',valAtual.toFixed(2));
@@ -1126,23 +1149,23 @@ await sb.from('fixed_checks').update({valor:novoVal,obs:novaObs||null}).eq('id',
 }else if(chk){
 await sb.from('fixed_checks').update({valor_previsto:novoVal,obs:novaObs||null,status:'previsto'}).eq('id',chk.id);
 }else{
-await sb.from('fixed_checks').insert({cycle_from:PERIOD.from,forecast_desc:f.desc,status:'previsto',valor_previsto:novoVal,obs:novaObs||null});
+await sb.from('fixed_checks').insert({cycle_from:FC_PERIOD.from,forecast_desc:f.desc,status:'previsto',valor_previsto:novoVal,obs:novaObs||null});
 }
 await load();
 };
 window.fixedCheckPay=async(i)=>{
-const f=FC[i];if(!f)return;
+const f=(window.__FCA||FC)[i];if(!f)return;
 const val=Number(document.getElementById('fcv-val-'+i)?.value||f.amount);
 const dt=document.getElementById('fcv-date-'+i)?.value||new Date().toISOString().slice(0,10);
 const txId=document.getElementById('fcv-tx-'+i)?.value||null;
-const chk=FIXED_CHECKS.find(k=>k.cycle_from===PERIOD.from&&k.forecast_desc===f.desc);
+const chk=FIXED_CHECKS.find(k=>k.cycle_from===FC_PERIOD.from&&k.forecast_desc===f.desc);
 if(chk)await sb.from('fixed_checks').update({valor:val,paid_date:dt,tx_id:txId||null,status:'pago'}).eq('id',chk.id);
-else await sb.from('fixed_checks').insert({cycle_from:PERIOD.from,forecast_desc:f.desc,valor:val,paid_date:dt,tx_id:txId||null,status:'pago'});
+else await sb.from('fixed_checks').insert({cycle_from:FC_PERIOD.from,forecast_desc:f.desc,valor:val,paid_date:dt,tx_id:txId||null,status:'pago'});
 await load();
 };
 window.fixedLinkOpen=(i)=>{
-const f=FC[i];if(!f)return;
-const mtx2=TX.filter(t=>!t.deleted&&t.validated!==false&&t.type==='expense'&&!t.internal&&(t.date||'')>=PERIOD.from&&(t.date||'')<=PERIOD.to);
+const f=(window.__FCA||FC)[i];if(!f)return;
+const mtx2=TX.filter(t=>!t.deleted&&t.validated!==false&&t.type==='expense'&&!t.internal&&(t.date||'')>=FC_PERIOD.from&&(t.date||'')<=FC_PERIOD.to);
 const cands=mtx2.map(t=>{const saldo=saldoOf(t);return{t,saldo,score:descSim(t.desc,f.desc)*2+(t.nature==='fixa'?0.5:0)-Math.abs(saldo-Number(f.amount))/Math.max(Number(f.amount),1)*0.3};}).sort((a,b)=>b.score-a.score).slice(0,12);
 $('fixedlink-list').innerHTML='<div class="msg" style="margin-top:0">Conta: <b>'+f.desc+'</b> (previsto '+fmt(f.amount)+') — o vínculo usa o <b>saldo após divisões</b> (sua parte).</div>'+(cands.length?cands.map(cd=>{
 const temDiv=Math.abs(cd.saldo-Number(cd.t.value))>0.009;
@@ -1154,13 +1177,13 @@ return `<div class="row" style="font-size:12px;margin-top:8px;align-items:center
 $('modal-fixedlink').classList.remove('hidden');
 };
 window.fixedLinkConfirm=async(i,txId)=>{
-const f=FC[i];const t=TX.find(x=>x.id===txId);
+const f=(window.__FCA||FC)[i];const t=TX.find(x=>x.id===txId);
 if(!f||!t)return;
 $('modal-fixedlink').classList.add('hidden');
-const chk=FIXED_CHECKS.find(k=>k.cycle_from===PERIOD.from&&k.forecast_desc===f.desc);
+const chk=FIXED_CHECKS.find(k=>k.cycle_from===FC_PERIOD.from&&k.forecast_desc===f.desc);
 const valorLiq=Math.max(0,saldoOf(t)); // saldo após divisões: só a sua parte pesa na conta fixa
 if(chk)await sb.from('fixed_checks').update({valor:valorLiq,paid_date:t.date,tx_id:txId,status:'pago'}).eq('id',chk.id);
-else await sb.from('fixed_checks').insert({cycle_from:PERIOD.from,forecast_desc:f.desc,valor:valorLiq,paid_date:t.date,tx_id:txId,status:'pago'});
+else await sb.from('fixed_checks').insert({cycle_from:FC_PERIOD.from,forecast_desc:f.desc,valor:valorLiq,paid_date:t.date,tx_id:txId,status:'pago'});
 await load();
 };
 $('btn-close-fixedlink').onclick=()=>$('modal-fixedlink').classList.add('hidden');
@@ -2018,7 +2041,8 @@ load();
 function setupEditableTable(viewId,editId,btnId,table){
 $(btnId).onclick=()=>{
 const ed=$(editId);if(!ed.classList.contains('hidden')){ed.classList.add('hidden');return;}
-const data=table==='forecasts'?FC:INC;
+const cycNow=cicloAtual().from;
+const data=table==='forecasts'?FC.filter(f=>(!f.valid_from||f.valid_from<=cycNow)&&(!f.valid_until||f.valid_until>=cycNow)):INC;
 const removed=[];
 ed.innerHTML=data.map((r,i)=>`<div class="row fc-row" data-orig="${r.desc}" style="margin-top:6px"><input data-i="${i}" data-f="desc" value="${r.desc}" style="flex:2;margin-top:0;font-size:12px"><input data-i="${i}" data-f="amt" inputmode="decimal" value="${r.amount}" style="flex:1;margin-top:0;font-size:12px"><button class="btn-sm fc-del" style="color:var(--red)">✕</button></div>`).join('')+
 `<div class="row" style="margin-top:6px"><input id="${editId}-nd" placeholder="Nova descrição" style="flex:2;margin-top:0;font-size:12px"><input id="${editId}-na" placeholder="Valor" inputmode="decimal" style="flex:1;margin-top:0;font-size:12px"></div>`+
@@ -2026,12 +2050,31 @@ ed.innerHTML=data.map((r,i)=>`<div class="row fc-row" data-orig="${r.desc}" styl
 ed.classList.remove('hidden');
 ed.querySelectorAll('.fc-del').forEach(btn=>btn.onclick=()=>{const row=btn.closest('.fc-row');removed.push(row.dataset.orig);row.remove();});
 document.getElementById(`${editId}-save`).onclick=async()=>{
-for(const desc of removed)await sb.from(table).delete().eq('desc',desc);
 const rows=[...ed.querySelectorAll('[data-i]')].reduce((acc,el)=>{const i=el.dataset.i;if(!acc[i])acc[i]={};acc[i][el.dataset.f]=el.value;return acc;},{});
 const updates=Object.values(rows).filter(r=>r.desc&&r.amt).map(r=>({desc:r.desc,amount:parseFloat((r.amt||'0').replace(',','.'))||0}));
 const nd=document.getElementById(`${editId}-nd`).value.trim();const na=document.getElementById(`${editId}-na`).value;
 if(nd&&na)updates.push({desc:nd,amount:parseFloat(na.replace(',','.'))||0});
+if(table==='forecasts'){
+// versionamento: edições valem do ciclo ATUAL em diante; ciclos passados preservam o plano da época
+const ontem=addDaysStr(cycNow,-1);
+for(const desc of removed)await sb.from('forecasts').update({valid_until:ontem}).eq('desc',desc);
+for(const u of updates){
+const oldRow=FC.find(x=>x.desc===u.desc);
+if(oldRow&&Math.abs(Number(oldRow.amount)-u.amount)>0.009){
+// congela o previsto antigo nos ciclos passados que ainda não têm snapshot
+await sb.from('fixed_checks').update({valor_previsto:Number(oldRow.amount)}).eq('forecast_desc',u.desc).is('valor_previsto',null).lt('cycle_from',cycNow);
+}
+}
+const novos=updates.filter(u=>!FC.find(x=>x.desc===u.desc)).map(u=>({...u,valid_from:cycNow}));
+const existentes=updates.filter(u=>FC.find(x=>x.desc===u.desc));
+if(existentes.length)await sb.from('forecasts').upsert(existentes,{onConflict:'desc'});
+if(novos.length)await sb.from('forecasts').upsert(novos,{onConflict:'desc'});
+// reativação de conta que estava encerrada e voltou pro plano
+for(const u of updates){const oldRow=FC.find(x=>x.desc===u.desc);if(oldRow&&oldRow.valid_until&&oldRow.valid_until<cycNow)await sb.from('forecasts').update({valid_until:null,valid_from:oldRow.valid_from||null}).eq('desc',u.desc);}
+}else{
+for(const desc of removed)await sb.from(table).delete().eq('desc',desc);
 if(updates.length)await sb.from(table).upsert(updates,{onConflict:'desc'});
+}
 ed.classList.add('hidden');load();
 };
 };
