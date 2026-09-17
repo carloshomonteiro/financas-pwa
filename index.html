@@ -184,6 +184,12 @@ table.tx-table .split-badge{border-radius:99px;background:rgba(148,163,199,.14);
 </div>
 <div class="card">
 <div class="row"><div class="label">Controle mensal de contas fixas</div><button class="logout" id="btn-fc-edit">editar plano</button></div>
+<div class="row" style="margin-top:8px;align-items:center;gap:8px">
+<button class="btn-sm" onclick="fcMesShift(-1)">◀</button>
+<span id="fc-mes-label" class="mono" style="flex:1;text-align:center;font-size:13px">—</span>
+<button class="btn-sm" onclick="fcMesShift(1)">▶</button>
+</div>
+<div class="msg" style="margin-top:4px">Fixas seguem o <b>mês-calendário</b> (competência) — diferente das variáveis, que seguem o ciclo 11→10 da fatura.</div>
 
 <div class="msg" style="margin-top:0">Checklist do ciclo selecionado: o sistema detecta o pagamento nas transações do período e sugere — confirme com um toque, ou marque manualmente. Conta nova no meio do ano? Use "editar plano" que ela entra no controle a partir deste ciclo.</div>
 <div id="fc-view"></div><div id="fc-edit" class="hidden"></div>
@@ -440,6 +446,18 @@ let TX=[],GOALS={},FC=[],INC=[],PEOPLE=[],SPLITS={},AUDIT=[],PENDING=[],INVESTME
 function freshFilters(){return{desc:'',date:{from:'',to:''},value:{min:'',max:''},saldo:{min:'',max:''},type:new Set(),nature:new Set(),category:new Set(),payment_method:new Set(),split:'',internal:''};}
 let FILTERS=freshFilters();
 let SORT={key:'date',dir:'desc'};
+let FC_MONTH=null;
+const MESES_PT=['Janeiro','Fevereiro','Março','Abril','Maio','Junho','Julho','Agosto','Setembro','Outubro','Novembro','Dezembro'];
+function mesDe(dateStr){
+const[y,m]=dateStr.split('-').map(Number);
+const last=new Date(y,m,0).getDate();
+return{from:`${y}-${String(m).padStart(2,'0')}-01`,to:`${y}-${String(m).padStart(2,'0')}-${String(last).padStart(2,'0')}`,label:MESES_PT[m-1]+'/'+y};
+}
+function shiftMes(fromStr,n){
+const[y,m]=fromStr.split('-').map(Number);
+const d=new Date(y,(m-1)+n,1);
+return mesDe(`${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-01`);
+}
 let FC_PERIOD=null;
 let CURRENT_MTX=[];
 function hasActiveFilters(){
@@ -1001,12 +1019,17 @@ $('inc-view').innerHTML=INC.length?INC.map(i=>`<div class="row" style="font-size
 const fcTotal=FC.reduce((s,f)=>s+Number(f.amount),0);
 const mtx=TX.filter(t=>!t.deleted&&t.validated!==false&&(t.date||'')>=PERIOD.from&&(t.date||'')<=PERIOD.to);
 const hoje=new Date(Date.now()-new Date().getTimezoneOffset()*60000).toISOString().slice(0,10);
-// o controle de fixas segue o Período global (card compartilhado entre Painel e Previsões)
-FC_PERIOD=PERIOD;
+// fixas por MÊS-CALENDÁRIO (competência): navegação própria, padrão = mês atual
+if(!FC_MONTH)FC_MONTH=mesDe(new Date(Date.now()-new Date().getTimezoneOffset()*60000).toISOString().slice(0,10));
+FC_PERIOD=FC_MONTH;
+if($('fc-mes-label')){
+const mesAtualFrom=mesDe(new Date(Date.now()-new Date().getTimezoneOffset()*60000).toISOString().slice(0,10)).from;
+$('fc-mes-label').textContent=FC_MONTH.label+(FC_MONTH.from===mesAtualFrom?' (atual)':'');
+}
 // plano vigente NESTE ciclo (vigência: mudanças no plano valem do ciclo da edição em diante)
-const FCa=FC.filter(f=>(!f.valid_from||f.valid_from<=FC_PERIOD.from)&&(!f.valid_until||f.valid_until>=FC_PERIOD.from));
+const FCa=FC.filter(f=>(!f.valid_from||f.valid_from<=FC_PERIOD.to)&&(!f.valid_until||f.valid_until>=FC_PERIOD.from));
 window.__FCA=FCa;
-const mtxFC=TX.filter(t=>!t.deleted&&t.validated!==false&&(t.date||'')>=FC_PERIOD.from&&(t.date||'')<=FC_PERIOD.to);
+const mtxFC=TX.filter(t=>!t.deleted&&t.validated!==false&&(t.date||'')>=addDaysStr(FC_PERIOD.from,-6)&&(t.date||'')<=addDaysStr(FC_PERIOD.to,6));
 const hojeFC=(hoje>=FC_PERIOD.from&&hoje<=FC_PERIOD.to)?hoje:FC_PERIOD.from;
 let pagoTotal=0,abertoTotal=0,abertoQtd=0,previstoEfetivo=0,pagasQtd=0,dispQtd=0;
 // detecção contextual: usa o histórico da própria conta (último ciclo pago: valor, forma de pagamento e dia do mês)
@@ -1107,6 +1130,12 @@ $('fc-view').innerHTML=FCa.length?`<div style="margin-bottom:8px">
 <div class="row" style="font-size:12px;margin-top:2px"><span class="dim">Em aberto</span><span class="mono ${abertoQtd?'red':'green'}">${abertoQtd?fmt(abertoTotal)+' ('+abertoQtd+')':'✓ tudo pago'}</span></div>
 </div>`+linhas:'<div class="msg">Sem plano de contas fixas — use "editar plano" pra criar.</div>';
 }
+window.fcMesShift=(n)=>{
+if(!FC_MONTH)return;
+FC_MONTH=shiftMes(FC_MONTH.from,n);
+window.__FC_OPEN=null;
+renderForecasts();
+};
 window.fcToggle=(i)=>{
 window.__FC_OPEN=window.__FC_OPEN===i?null:i;
 renderForecasts();
@@ -1151,7 +1180,7 @@ await load();
 };
 window.fixedLinkOpen=(i)=>{
 const f=(window.__FCA||FC)[i];if(!f)return;
-const mtx2=TX.filter(t=>!t.deleted&&t.validated!==false&&t.type==='expense'&&!t.internal&&(t.date||'')>=FC_PERIOD.from&&(t.date||'')<=FC_PERIOD.to);
+const mtx2=TX.filter(t=>!t.deleted&&t.validated!==false&&t.type==='expense'&&!t.internal&&(t.date||'')>=addDaysStr(FC_PERIOD.from,-6)&&(t.date||'')<=addDaysStr(FC_PERIOD.to,6));
 const cands=mtx2.map(t=>{const saldo=saldoOf(t);return{t,saldo,score:descSim(t.desc,f.desc)*2+(t.nature==='fixa'?0.5:0)-Math.abs(saldo-Number(f.amount))/Math.max(Number(f.amount),1)*0.3};}).sort((a,b)=>b.score-a.score).slice(0,12);
 $('fixedlink-list').innerHTML='<div class="msg" style="margin-top:0">Conta: <b>'+f.desc+'</b> (previsto '+fmt(f.amount)+') — o vínculo usa o <b>saldo após divisões</b> (sua parte).</div>'+(cands.length?cands.map(cd=>{
 const temDiv=Math.abs(cd.saldo-Number(cd.t.value))>0.009;
@@ -1761,16 +1790,16 @@ const nome=(prompt('Nome da conta no plano:',descPadrao)||'').trim();
 if(!nome)return;
 const valor=Math.max(0,saldoOf(t));
 const parcTxt=(prompt('É parcelada com fim definido?\n\nDigite no formato ATUAL/TOTAL (ex: 1/6 — esta é a 1ª de 6 parcelas).\nDeixe VAZIO se for uma fixa perene (sem fim).','')||'').trim();
-const cicloTx=cicloDeData(t.date||new Date().toISOString().slice(0,10));
+const cicloTx=mesDe(t.date||new Date().toISOString().slice(0,10)); // fixas: competência = mês-calendário
 let validUntil=null,obs=null;
 if(parcTxt){
 const m=/^(\d+)\s*\/\s*(\d+)$/.exec(parcTxt);
 if(!m){alert('Formato inválido — use ATUAL/TOTAL, ex: 1/6. Nada foi criado no plano.');return;}
 const atual=Number(m[1]),total=Number(m[2]);
 if(atual<1||total<atual){alert('Parcelas inconsistentes. Nada foi criado no plano.');return;}
-const restantes=total-atual; // ciclos APÓS o atual
-const ultimoCiclo=restantes>0?shiftPeriodStr(cicloTx.from,restantes):cicloTx;
-validUntil=ultimoCiclo.to;
+const restantes=total-atual; // meses APÓS o atual
+const ultimoMes=restantes>0?shiftMes(cicloTx.from,restantes):cicloTx;
+validUntil=ultimoMes.to;
 obs='parcela '+atual+'/'+total;
 }
 // evita duplicar conta existente no plano
@@ -1778,7 +1807,7 @@ if(FC.find(x=>x.desc===nome)){alert('Já existe uma conta "'+nome+'" no plano �
 await sb.from('forecasts').insert({desc:nome,amount:valor,valid_from:cicloTx.from,valid_until:validUntil});
 // a parcela que motivou a marcação já está paga neste ciclo, vinculada à transação
 await sb.from('fixed_checks').insert({cycle_from:cicloTx.from,forecast_desc:nome,valor,paid_date:t.date,tx_id:t.id,status:'pago',obs});
-alert(parcTxt?('✓ "'+nome+'" no plano até o ciclo que termina em '+validUntil.split('-').reverse().join('/')+' ('+obs+' já marcada como paga). As próximas parcelas aparecem em aberto nas Previsões, ciclo a ciclo.'):('✓ "'+nome+'" adicionada ao plano como conta perene, e o pagamento deste ciclo já está marcado.'));
+alert(parcTxt?('✓ "'+nome+'" no plano até '+validUntil.split('-').reverse().join('/')+' ('+obs+' já marcada como paga). As próximas parcelas aparecem em aberto nas Previsões, mês a mês.'):('✓ "'+nome+'" adicionada ao plano como conta perene, e o pagamento deste mês já está marcado.'));
 await load();
 }
 async function logAndUpdate(id,field,newVal){
@@ -2066,7 +2095,7 @@ load();
 function setupEditableTable(viewId,editId,btnId,table){
 $(btnId).onclick=()=>{
 const ed=$(editId);if(!ed.classList.contains('hidden')){ed.classList.add('hidden');return;}
-const cycNow=cicloAtual().from;
+const cycNow=table==='forecasts'?mesDe(new Date(Date.now()-new Date().getTimezoneOffset()*60000).toISOString().slice(0,10)).from:cicloAtual().from;
 const data=table==='forecasts'?FC.filter(f=>(!f.valid_from||f.valid_from<=cycNow)&&(!f.valid_until||f.valid_until>=cycNow)):INC;
 const removed=[];
 ed.innerHTML=data.map((r,i)=>`<div class="row fc-row" data-orig="${r.desc}" style="margin-top:6px"><input data-i="${i}" data-f="desc" value="${r.desc}" style="flex:2;margin-top:0;font-size:12px"><input data-i="${i}" data-f="amt" inputmode="decimal" value="${r.amount}" style="flex:1;margin-top:0;font-size:12px"><button class="btn-sm fc-del" style="color:var(--red)">✕</button></div>`).join('')+
