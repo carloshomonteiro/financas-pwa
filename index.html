@@ -1743,6 +1743,44 @@ window.validateTx=async(id)=>{
 await logAndUpdate(id,'validated',true);
 load();
 };
+function cicloDeData(dateStr){
+const[y,m,d]=dateStr.split('-').map(Number);
+const f=d>=CYCLE?new Date(y,m-1,CYCLE):new Date(y,m-2,CYCLE);
+const t=new Date(f.getFullYear(),f.getMonth()+1,CYCLE-1);
+const iso=x=>new Date(x.getTime()-x.getTimezoneOffset()*60000).toISOString().slice(0,10);
+return{from:iso(f),to:iso(t)};
+}
+// fluxo ao marcar uma despesa como Fixa: oferece incluir no plano de Previsões,
+// como conta perene ou parcelada (vigência limitada às parcelas restantes)
+async function fixaFlow(txId){
+const t=TX.find(x=>x.id===txId);
+if(!t||t.type!=='expense'||t.internal)return;
+if(!confirm('Adicionar "'+t.desc+'" ao plano de contas fixas (Previsões)?\n\nOK = sim · Cancelar = só marcar como fixa, sem previsão'))return;
+const descPadrao=t.desc.replace(/\s*\(\d+\/\d+\)\s*/,' ').replace(/\s*\[fatura\]\s*/,' ').trim();
+const nome=(prompt('Nome da conta no plano:',descPadrao)||'').trim();
+if(!nome)return;
+const valor=Math.max(0,saldoOf(t));
+const parcTxt=(prompt('É parcelada com fim definido?\n\nDigite no formato ATUAL/TOTAL (ex: 1/6 — esta é a 1ª de 6 parcelas).\nDeixe VAZIO se for uma fixa perene (sem fim).','')||'').trim();
+const cicloTx=cicloDeData(t.date||new Date().toISOString().slice(0,10));
+let validUntil=null,obs=null;
+if(parcTxt){
+const m=/^(\d+)\s*\/\s*(\d+)$/.exec(parcTxt);
+if(!m){alert('Formato inválido — use ATUAL/TOTAL, ex: 1/6. Nada foi criado no plano.');return;}
+const atual=Number(m[1]),total=Number(m[2]);
+if(atual<1||total<atual){alert('Parcelas inconsistentes. Nada foi criado no plano.');return;}
+const restantes=total-atual; // ciclos APÓS o atual
+const ultimoCiclo=restantes>0?shiftPeriodStr(cicloTx.from,restantes):cicloTx;
+validUntil=ultimoCiclo.to;
+obs='parcela '+atual+'/'+total;
+}
+// evita duplicar conta existente no plano
+if(FC.find(x=>x.desc===nome)){alert('Já existe uma conta "'+nome+'" no plano — nada foi criado. Ajuste pelo "editar plano" se necessário.');return;}
+await sb.from('forecasts').insert({desc:nome,amount:valor,valid_from:cicloTx.from,valid_until:validUntil});
+// a parcela que motivou a marcação já está paga neste ciclo, vinculada à transação
+await sb.from('fixed_checks').insert({cycle_from:cicloTx.from,forecast_desc:nome,valor,paid_date:t.date,tx_id:t.id,status:'pago',obs});
+alert(parcTxt?('✓ "'+nome+'" no plano até o ciclo que termina em '+validUntil.split('-').reverse().join('/')+' ('+obs+' já marcada como paga). As próximas parcelas aparecem em aberto nas Previsões, ciclo a ciclo.'):('✓ "'+nome+'" adicionada ao plano como conta perene, e o pagamento deste ciclo já está marcado.'));
+await load();
+}
 async function logAndUpdate(id,field,newVal){
 const row=TX.find(t=>t.id===id);
 const oldVal=row?row[field]:null;
@@ -1771,6 +1809,7 @@ render();
 return;
 }
 await logAndUpdate(id,f,v);
+if(f==='nature'&&v==='fixa'){await fixaFlow(id);}
 render();
 }
 if(e.target.classList.contains('row-edit-chk')){
