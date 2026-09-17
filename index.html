@@ -1003,6 +1003,14 @@ let pagoTotal=0,abertoTotal=0,abertoQtd=0,previstoEfetivo=0,pagasQtd=0,dispQtd=0
 // detecção contextual: usa o histórico da própria conta (último ciclo pago: valor, forma de pagamento e dia do mês)
 // e EXIGE evidência de nome — valor parecido sozinho não sugere mais nada
 function detectFixedTx(f,previstoCiclo){
+// mapa de frequência: em quantos PAGADORES DISTINTOS cada palavra aparece (palavra comum a muitos = não identifica ninguém)
+if(!window.__DFMAP||window.__DFMAP.n!==TX.length){
+const m=new Map();const seen=new Set();
+TX.forEach(t=>{const toks=normTxt(t.desc);const key=toks.join(' ');if(!key||seen.has(key))return;seen.add(key);new Set(toks).forEach(w=>m.set(w,(m.get(w)||0)+1));});
+window.__DFMAP={n:TX.length,m};
+}
+const DF=window.__DFMAP.m;
+const temTokenRaro=(a,b)=>{const A=normTxt(a),B=new Set(normTxt(b));return A.some(w=>B.has(w)&&(DF.get(w)||0)<=3);};
 const hist=FIXED_CHECKS.filter(k=>k.forecast_desc===f.desc&&k.status==='pago'&&k.cycle_from<PERIOD.from).sort((a,b)=>(b.cycle_from||'').localeCompare(a.cycle_from||''));
 const last=hist[0]||null;
 const lastTx=last&&last.tx_id?TX.find(t=>t.id===last.tx_id):null;
@@ -1016,7 +1024,9 @@ const simL=lastTx?descSim(t.desc,lastTx.desc):0;
 const nameSim=Math.max(simF,simL);
 const valExato=Math.abs(saldoT-alvoValor)<0.01;
 const pmIgual=!!(lastTx&&t.payment_method&&t.payment_method===lastTx.payment_method);
-if(nameSim<0.4&&!(valExato&&pmIgual))return;
+// nome só é evidência se compartilhar uma palavra RARA (que identifica o credor) — cidade/genéricos não contam
+const nomeForte=nameSim>=0.4&&(temTokenRaro(t.desc,f.desc)||(lastTx&&temTokenRaro(t.desc,lastTx.desc)));
+if(!nomeForte&&!(valExato&&pmIgual))return;
 let score=nameSim*3;const why=[];
 if(nameSim>=0.4)why.push('nome');
 if(alvoValor>0&&Math.abs(saldoT-alvoValor)<=alvoValor*0.10){score+=1;why.push('valor');}
@@ -1434,7 +1444,7 @@ function populateAcertoPessoa(){
 const sel=$('acerto-pessoa');if(!sel)return;
 sel.innerHTML=PEOPLE.map(p=>`<option value="${p.id}"${/d[eé]bora/i.test(p.name)?' selected':''}>${p.name}</option>`).join('');
 }
-const NORM_STOP=new Set(['pix','ted','doc','transferencia','transf','pagamento','pgto','pagto','debito','credito','boleto','compra','cartao','banco','conta','corrente','ltda','eireli','via']);
+const NORM_STOP=new Set(['pix','ted','doc','transferencia','transf','pagamento','pgto','pagto','debito','credito','boleto','bankslip','slip','compra','cartao','banco','conta','corrente','ltda','eireli','via','juiz','fora','sao','rua','avenida']);
 function normTxt(s){return (s||'').toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g,'').replace(/[^a-z0-9 ]/g,' ').split(/\s+/).filter(w=>w.length>2&&!NORM_STOP.has(w));}
 function descSim(a,b){const ta=normTxt(a),tb=normTxt(b);if(!ta.length||!tb.length)return 0;const setB=new Set(tb);const inter=ta.filter(w=>setB.has(w)).length;return inter/Math.min(ta.length,tb.length);}
 let ACERTO=null;
