@@ -1128,6 +1128,7 @@ ${meta&&meta.obs?`<div class="dim" style="font-size:11px;margin-top:4px">📝 ${
 <button class="btn-sm" title="Dispensar neste mês" style="color:var(--red)" onclick="fixedCheckSkip(${i})">🚫</button>
 </div>`;
 }
+det+=`<div style="margin-top:8px;text-align:right"><button class="logout" onclick="fixedEncerrar(${i})">⛔ encerrar esta conta do plano…</button></div>`;
 return `<div style="border-bottom:1px solid var(--line);padding:9px 2px;cursor:pointer" onclick="fcToggle(${i})">
 <div class="row" style="font-size:13px;align-items:center;gap:8px">
 <span style="width:18px;text-align:center;flex:none">${statusIcon}</span>
@@ -1147,6 +1148,20 @@ $('fc-view').innerHTML=FCa.length?`<div style="margin-bottom:8px">
 <div class="row" style="font-size:12px;margin-top:2px"><span class="dim">Em aberto</span><span class="mono ${abertoQtd?'red':'green'}">${abertoQtd?fmt(abertoTotal)+' ('+abertoQtd+')':'✓ tudo pago'}</span></div>
 </div>`+linhas:'<div class="msg">Sem plano de contas fixas — use "editar plano" pra criar.</div>';
 }
+window.fixedEncerrar=async(i)=>{
+const f=(window.__FCA||FC)[i];if(!f)return;
+const mesAtual=FC_MONTH.label;
+const proxMes=shiftMes(FC_MONTH.from,1).label;
+const escolha=prompt(`Encerrar "${f.desc}" a partir de qual mês?\n\n1 = a partir DESTE mês (${mesAtual} — a conta some já neste checklist)\n2 = a partir do PRÓXIMO (${proxMes} — este mês ainda conta)\n\nO histórico dos meses anteriores fica preservado.`, '2');
+if(escolha===null)return;
+let validUntil;
+if(escolha.trim()==='1')validUntil=addDaysStr(FC_MONTH.from,-1);
+else if(escolha.trim()==='2')validUntil=FC_MONTH.to;
+else{alert('Opção inválida — nada foi alterado.');return;}
+if(!confirm(`Confirmar: "${f.desc}" deixa de existir no plano a partir de ${escolha.trim()==='1'?mesAtual:proxMes}?`))return;
+await sb.from('forecasts').update({valid_until:validUntil}).eq('desc',f.desc);
+await load();
+};
 window.fcMesAtual=()=>{
 FC_MONTH=mesDe(new Date(Date.now()-new Date().getTimezoneOffset()*60000).toISOString().slice(0,10));
 window.__FC_OPEN=null;
