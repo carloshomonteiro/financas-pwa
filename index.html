@@ -1457,7 +1457,7 @@ sumValor+=sign*Number(t.value);
 sumSaldo+=sign*sal;
 sumSplitDiscount+=(Number(t.value)-sal);
 h+=`<tr>
-<td class="mono dim">${(t.date||'').split('-').reverse().join('/')}</td>
+<td class="mono dim" style="cursor:pointer;text-decoration:underline dotted" title="Corrigir data (ex: compra que caiu na fatura seguinte)" onclick="editTxDate('${t.id}')">${(t.date||'').split('-').reverse().join('/')}</td>
 <td><input class="row-edit-text desc-input" data-id="${t.id}" data-f="desc" value="${descVal}">${splitBadges?'<br>'+splitBadges:''}</td>
 <td class="mono ${t.internal?'':(t.type==='income'?'green':'red')}" ${t.internal?'style="color:#e8e8e8"':''}>${fmt(t.value)}${t.internal?'<br><span class="dim" style="font-size:9px">interna</span>':''}</td>
 <td class="mono dim">${fmt(sal)}</td>
@@ -1496,7 +1496,7 @@ const sp=SPLITS[t.id]||[];
 const splitBadges=sp.map(s=>`<span class="split-badge">${s.people?.name||'?'}: ${fmt(s.amount)}${s.paid_tx_id?' ✓':''}</span>`).join(' ');
 const descVal=(t.desc||'').replace(/"/g,'&quot;');
 h+=`<tr>
-<td class="mono dim">${(t.date||'').split('-').reverse().join('/')}</td>
+<td class="mono dim" style="cursor:pointer;text-decoration:underline dotted" title="Corrigir data (ex: compra que caiu na fatura seguinte)" onclick="editTxDate('${t.id}')">${(t.date||'').split('-').reverse().join('/')}</td>
 <td><input class="row-edit-text desc-input" data-id="${t.id}" data-f="desc" value="${descVal}">${splitBadges?'<br>'+splitBadges:''}</td>
 <td class="mono ${t.type==='income'?'green':'red'}">${fmt(t.value)}</td>
 <td class="mono dim">${fmt(saldoOf(t))}</td>
@@ -1898,6 +1898,22 @@ await sb.from('fixed_checks').insert({cycle_from:cicloTx.from,forecast_desc:nome
 alert(parcTxt?('✓ "'+nome+'" no plano até '+validUntil.split('-').reverse().join('/')+' ('+obs+' já marcada como paga). As próximas parcelas aparecem em aberto nas Previsões, mês a mês.'):('✓ "'+nome+'" adicionada ao plano como conta perene, e o pagamento deste mês já está marcado.'));
 await load();
 }
+window.editTxDate=async(id)=>{
+const t=TX.find(x=>x.id===id);if(!t)return;
+const atualBr=(t.date||'').split('-').reverse().join('/');
+const novoBr=(prompt(`Corrigir a data de "${t.desc}"\n\nÚtil quando a compra foi feita na véspera do fechamento mas só entrou na fatura seguinte.\n\nNova data (DD/MM/AAAA):`,atualBr)||'').trim();
+if(!novoBr||novoBr===atualBr)return;
+const m=/^(\d{2})\/(\d{2})\/(\d{4})$/.exec(novoBr);
+if(!m){alert('Data inválida — use o formato DD/MM/AAAA. Nada foi alterado.');return;}
+const iso=`${m[3]}-${m[2]}-${m[1]}`;
+const dt=new Date(iso+'T12:00:00');
+if(isNaN(dt.getTime())||dt.getFullYear()<2020||dt.getFullYear()>2035){alert('Data fora do intervalo esperado. Nada foi alterado.');return;}
+const cicloDe=d=>{const[y,mo,dd]=d.split('-').map(Number);const f=dd>=CYCLE?new Date(y,mo-1,CYCLE):new Date(y,mo-2,CYCLE);return `${f.getFullYear()}-${String(f.getMonth()+1).padStart(2,'0')}-${String(f.getDate()).padStart(2,'0')}`;};
+const mudouCiclo=cicloDe(t.date||iso)!==cicloDe(iso);
+if(!confirm(`Confirmar a alteração da data?\n\n"${t.desc}" — ${fmt(t.value)}\n${atualBr} → ${novoBr}${mudouCiclo?'\n\n⚠ A transação MUDA DE CICLO (afeta Painel, Ritmo e conferência de fatura).':''}`))return;
+await logAndUpdate(id,'date',iso);
+render();
+};
 async function logAndUpdate(id,field,newVal){
 const row=TX.find(t=>t.id===id);
 const oldVal=row?row[field]:null;
