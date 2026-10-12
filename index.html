@@ -191,7 +191,7 @@ table.tx-table .split-badge{border-radius:99px;background:rgba(148,163,199,.14);
 <button class="btn-outline" onclick="fcMesShift(1)" style="flex:1;margin-top:0">▶</button>
 </div>
 <button class="btn-outline" id="btn-fc-mes-atual" style="margin-top:8px" onclick="fcMesAtual()">Mês atual</button>
-<div class="msg" style="margin-top:6px">Toda esta página segue o <b>mês-calendário</b> (competência das contas) — diferente do Painel, que segue o ciclo 11→10 da fatura.</div>
+<div class="msg" style="margin-top:6px">Toda esta página segue o <b>mês-calendário</b> (competência das contas). Pagamentos à vista contam no mês em que ocorrem; compras no <b>cartão</b> contam no mês do pagamento da fatura (ciclo 11→10 anterior).</div>
 </div>
 <div class="card">
 <div class="row"><div class="label">Previsão de receita (mensal)</div><button class="logout" id="btn-inc-edit">editar</button></div>
@@ -463,6 +463,13 @@ const[y,m]=dateStr.split('-').map(Number);
 const last=new Date(y,m,0).getDate();
 return{from:`${y}-${String(m).padStart(2,'0')}-01`,to:`${y}-${String(m).padStart(2,'0')}-${String(last).padStart(2,'0')}`,label:MESES_PT[m-1]+'/'+y};
 }
+// compras no CARTÃO pertencem ao mês do pagamento da fatura: ciclo 11/(M-1) → 10/M
+function fcJanelaCartao(mesFrom){
+const[y,m]=mesFrom.split('-').map(Number);
+const fy=m===1?y-1:y,fm=m===1?12:m-1;
+return{from:`${fy}-${String(fm).padStart(2,'0')}-11`,to:`${mesFrom.slice(0,8)}10`};
+}
+function ehTxCartao(t){return t.source==='cartao_sync'||t.source==='fatura_email'||/cart[aã]o|bandeirado/i.test(t.payment_method||'');}
 function shiftMes(fromStr,n){
 const[y,m]=fromStr.split('-').map(Number);
 const d=new Date(y,(m-1)+n,1);
@@ -1039,7 +1046,13 @@ $('fc-mes-label').textContent=FC_MONTH.label+(FC_MONTH.from===mesAtualFrom?' (at
 // plano vigente NESTE ciclo (vigência: mudanças no plano valem do ciclo da edição em diante)
 const FCa=FC.filter(f=>(!f.valid_from||f.valid_from<=FC_PERIOD.to)&&(!f.valid_until||f.valid_until>=FC_PERIOD.from));
 window.__FCA=FCa;
-const mtxFC=TX.filter(t=>!t.deleted&&t.validated!==false&&(t.date||'')>=addDaysStr(FC_PERIOD.from,-6)&&(t.date||'')<=addDaysStr(FC_PERIOD.to,6));
+const jCard=fcJanelaCartao(FC_PERIOD.from);
+const mtxFC=TX.filter(t=>{
+if(t.deleted||t.validated===false)return false;
+const d=t.date||'';
+if(ehTxCartao(t))return d>=jCard.from&&d<=jCard.to; // cartão: ciclo da fatura paga neste mês
+return d>=addDaysStr(FC_PERIOD.from,-6)&&d<=addDaysStr(FC_PERIOD.to,6); // à vista: mês-calendário
+});
 const hojeFC=(hoje>=FC_PERIOD.from&&hoje<=FC_PERIOD.to)?hoje:FC_PERIOD.from;
 let pagoTotal=0,abertoTotal=0,abertoQtd=0,previstoEfetivo=0,pagasQtd=0,dispQtd=0;
 // detecção contextual: usa o histórico da própria conta (último ciclo pago: valor, forma de pagamento e dia do mês)
@@ -1252,11 +1265,15 @@ function renderFixedLinkList(i,termo){
 const f=(window.__FCA||FC)[i];if(!f)return;
 const jaVinculadas=new Set(FIXED_CHECKS.filter(k=>k.cycle_from===FC_PERIOD.from&&k.tx_id).map(k=>k.tx_id));
 const buscando=(termo||'').trim().length>=2;
-// sem busca: janela do mês ±6d · com busca: alcança 120 dias pra trás (compra antiga que pertence a esta conta)
-const dIni=buscando?addDaysStr(FC_PERIOD.from,-120):addDaysStr(FC_PERIOD.from,-6);
-const dFim=addDaysStr(FC_PERIOD.to,6);
+const jCard2=fcJanelaCartao(FC_PERIOD.from);
 const tNorm=normTxt(termo||'').join(' ');
-let mtx2=TX.filter(t=>!t.deleted&&t.validated!==false&&t.type==='expense'&&!t.internal&&!jaVinculadas.has(t.id)&&(t.date||'')>=dIni&&(t.date||'')<=dFim);
+let mtx2=TX.filter(t=>{
+if(t.deleted||t.validated===false||t.type!=='expense'||t.internal||jaVinculadas.has(t.id))return false;
+const d=t.date||'';
+if(buscando)return d>=addDaysStr(FC_PERIOD.from,-120)&&d<=addDaysStr(FC_PERIOD.to,6); // busca: janela ampla
+if(ehTxCartao(t))return d>=jCard2.from&&d<=jCard2.to; // cartão: ciclo da fatura paga neste mês
+return d>=addDaysStr(FC_PERIOD.from,-6)&&d<=addDaysStr(FC_PERIOD.to,6); // à vista: mês-calendário
+});
 if(buscando)mtx2=mtx2.filter(t=>normTxt(t.desc).join(' ').includes(tNorm)||t.desc.toLowerCase().includes(termo.toLowerCase().trim()));
 const cands=mtx2.map(t=>{const saldo=saldoOf(t);return{t,saldo,score:descSim(t.desc,f.desc)*2+(t.nature==='fixa'?0.5:0)-Math.abs(saldo-Number(f.amount))/Math.max(Number(f.amount),1)*0.3};}).sort((a,b)=>buscando?(b.t.date||'').localeCompare(a.t.date||''):(b.score-a.score)).slice(0,buscando?20:12);
 const ocultas=FIXED_CHECKS.filter(k=>k.cycle_from===FC_PERIOD.from&&k.tx_id).length;
