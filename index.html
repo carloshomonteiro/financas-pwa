@@ -348,6 +348,7 @@ table.tx-table .split-badge{border-radius:99px;background:rgba(148,163,199,.14);
 <div class="card" style="width:100%;max-width:460px;max-height:88vh;overflow-y:auto">
 <div class="row"><div class="label">Vincular conta fixa a uma transação</div><button class="btn-sm" id="btn-close-fixedlink">✕ Fechar</button></div>
 <div class="msg">Escolha o pagamento já lançado no período — valor e data vêm da transação.</div>
+<input id="fixedlink-search" placeholder="🔍 Buscar por nome (alcança períodos anteriores)" style="margin-top:8px">
 <div id="fixedlink-list" style="margin-top:8px"></div>
 </div>
 </div>
@@ -1247,17 +1248,30 @@ const prox=pagos.reduce((m,k)=>Math.max(m,Number(k.ocorrencia||1)),0)+1;
 await sb.from('fixed_checks').insert({cycle_from:FC_PERIOD.from,forecast_desc:f.desc,valor:val,paid_date:dt,tx_id:txId||null,status:'pago',ocorrencia:prox,parcial});
 await load();
 };
-window.fixedLinkOpen=(i)=>{
+function renderFixedLinkList(i,termo){
 const f=(window.__FCA||FC)[i];if(!f)return;
-const mtx2=TX.filter(t=>!t.deleted&&t.validated!==false&&t.type==='expense'&&!t.internal&&(t.date||'')>=addDaysStr(FC_PERIOD.from,-6)&&(t.date||'')<=addDaysStr(FC_PERIOD.to,6));
-const cands=mtx2.map(t=>{const saldo=saldoOf(t);return{t,saldo,score:descSim(t.desc,f.desc)*2+(t.nature==='fixa'?0.5:0)-Math.abs(saldo-Number(f.amount))/Math.max(Number(f.amount),1)*0.3};}).sort((a,b)=>b.score-a.score).slice(0,12);
+const jaVinculadas=new Set(FIXED_CHECKS.filter(k=>k.cycle_from===FC_PERIOD.from&&k.tx_id).map(k=>k.tx_id));
+const buscando=(termo||'').trim().length>=2;
+// sem busca: janela do mês ±6d · com busca: alcança 120 dias pra trás (compra antiga que pertence a esta conta)
+const dIni=buscando?addDaysStr(FC_PERIOD.from,-120):addDaysStr(FC_PERIOD.from,-6);
+const dFim=addDaysStr(FC_PERIOD.to,6);
+const tNorm=normTxt(termo||'').join(' ');
+let mtx2=TX.filter(t=>!t.deleted&&t.validated!==false&&t.type==='expense'&&!t.internal&&!jaVinculadas.has(t.id)&&(t.date||'')>=dIni&&(t.date||'')<=dFim);
+if(buscando)mtx2=mtx2.filter(t=>normTxt(t.desc).join(' ').includes(tNorm)||t.desc.toLowerCase().includes(termo.toLowerCase().trim()));
+const cands=mtx2.map(t=>{const saldo=saldoOf(t);return{t,saldo,score:descSim(t.desc,f.desc)*2+(t.nature==='fixa'?0.5:0)-Math.abs(saldo-Number(f.amount))/Math.max(Number(f.amount),1)*0.3};}).sort((a,b)=>buscando?(b.t.date||'').localeCompare(a.t.date||''):(b.score-a.score)).slice(0,buscando?20:12);
+const ocultas=FIXED_CHECKS.filter(k=>k.cycle_from===FC_PERIOD.from&&k.tx_id).length;
 $('fixedlink-list').innerHTML='<div class="msg" style="margin-top:0">Conta: <b>'+f.desc+'</b> (previsto '+fmt(f.amount)+') — o vínculo usa o <b>saldo após divisões</b> (sua parte).</div>'+(cands.length?cands.map(cd=>{
 const temDiv=Math.abs(cd.saldo-Number(cd.t.value))>0.009;
 return `<div class="row" style="font-size:12px;margin-top:8px;align-items:center;gap:6px">
 <span style="flex:1;min-width:0"><b>${cd.t.desc}</b><br><span class="dim">${(cd.t.date||'').split('-').reverse().join('/')} · ${temDiv?`total ${fmt(cd.t.value)} · <b>sua parte ${fmt(cd.saldo)}</b>`:fmt(cd.t.value)}${cd.t.nature==='fixa'?' · fixa':''}</span></span>
 <button class="btn-sm" onclick="fixedLinkConfirm(${i},'${cd.t.id}')">Vincular</button>
 </div>`;
-}).join(''):'<div class="msg">Nenhuma despesa no período.</div>');
+}).join(''):'<div class="msg">'+(buscando?'Nada encontrado com esse termo nos últimos 120 dias.':'Nenhuma despesa no período.')+'</div>')+(ocultas?'<div class="dim" style="font-size:10px;margin-top:10px">'+ocultas+' transação(ões) já vinculada(s) a contas deste mês ficam ocultas.</div>':'');
+}
+window.fixedLinkOpen=(i)=>{
+$('fixedlink-search').value='';
+$('fixedlink-search').oninput=()=>renderFixedLinkList(i,$('fixedlink-search').value);
+renderFixedLinkList(i,'');
 $('modal-fixedlink').classList.remove('hidden');
 };
 window.fixedLinkConfirm=async(i,txId)=>{
