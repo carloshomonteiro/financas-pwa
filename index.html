@@ -54,7 +54,7 @@ input:focus,select:focus { border-color:var(--gold); }
 @keyframes spin { to { transform:rotate(360deg); } }
 .hidden { display:none !important; }
 .logout { background:none; border:none; color:var(--dim); font-size:11px; cursor:pointer; text-decoration:underline; }
-.split-row { display:flex; align-items:center; gap:6px; margin-top:6px; font-size:12px; }
+.split-row { display:flex; align-items:center; gap:6px; margin-top:6px; font-size:12px; flex-wrap:wrap; }
 .split-row select,.split-row input { margin-top:0; padding:6px 8px; font-size:12px; }
 .tx-scroll { overflow-x:auto; margin-top:8px; }
 table.tx-table { width:100%; min-width:760px; border-collapse:collapse; font-size:11px; }
@@ -2065,6 +2065,12 @@ $('modal-linksplit').classList.add('hidden');
 await load();
 };
 $('btn-close-linksplit').onclick=()=>$('modal-linksplit').classList.add('hidden');
+window.splitFrac=(el,n)=>{
+const txId=$('modal-split').dataset.txid;
+const tx=TX.find(t=>t.id===txId);if(!tx)return;
+const inp=el.closest('.split-row').querySelector('input[type=number]');
+if(inp)inp.value=(Number(tx.value)/n).toFixed(2);
+};
 window.openSplit=async(txId)=>{
 const tx=TX.find(t=>t.id===txId);if(!tx)return;
 $('modal-split-desc').textContent=`${tx.desc} — ${fmt(tx.value)}`;
@@ -2076,15 +2082,16 @@ $('modal-split').classList.remove('hidden');
 };
 function renderSplitRows(rows){
 $('modal-split-rows').innerHTML=rows.map((r,i)=>`<div class="split-row">
-<select data-i="${i}">${PEOPLE.map(p=>`<option value="${p.id}" ${p.id===r.person_id?'selected':''}>${p.name}</option>`).join('')}</select>
-<input type="number" data-i="${i}" value="${r.amount}" style="width:100px" step="0.01">
+<select data-i="${i}" style="min-width:0;flex:1">${PEOPLE.map(p=>`<option value="${p.id}" ${p.id===r.person_id?'selected':''}>${p.name}</option>`).join('')}</select>
+<input type="number" data-i="${i}" value="${r.amount}" style="width:84px" step="0.01">
+<span style="display:inline-flex;gap:3px"><button class="btn-sm" style="padding:4px 7px;font-size:10px" title="metade" onclick="splitFrac(this,2)">÷2</button><button class="btn-sm" style="padding:4px 7px;font-size:10px" title="um terço" onclick="splitFrac(this,3)">÷3</button><button class="btn-sm" style="padding:4px 7px;font-size:10px" title="um quarto" onclick="splitFrac(this,4)">÷4</button></span>
 <button class="btn-sm" onclick="this.parentElement.remove()">✕</button>
 </div>`).join('');
 }
 $('modal-add-person').onclick=()=>{
 if(!PEOPLE.length)return;
 const div=document.createElement('div');div.className='split-row';
-div.innerHTML=`<select>${PEOPLE.map(p=>`<option value="${p.id}">${p.name}</option>`).join('')}</select><input type="number" value="0" style="width:100px" step="0.01"><button class="btn-sm" onclick="this.parentElement.remove()">✕</button>`;
+div.innerHTML=`<select style="min-width:0;flex:1">${PEOPLE.map(p=>`<option value="${p.id}">${p.name}</option>`).join('')}</select><input type="number" value="0" style="width:84px" step="0.01"><span style="display:inline-flex;gap:3px"><button class="btn-sm" style="padding:4px 7px;font-size:10px" title="metade" onclick="splitFrac(this,2)">÷2</button><button class="btn-sm" style="padding:4px 7px;font-size:10px" title="um terço" onclick="splitFrac(this,3)">÷3</button><button class="btn-sm" style="padding:4px 7px;font-size:10px" title="um quarto" onclick="splitFrac(this,4)">÷4</button></span><button class="btn-sm" onclick="this.parentElement.remove()">✕</button>`;
 $('modal-split-rows').appendChild(div);
 };
 function renderPeopleManageList(){
