@@ -1089,9 +1089,10 @@ const sumPago=pagos.reduce((s,k)=>s+Number(k.valor||0),0);
 const dispensada=!!(meta&&meta.status==='dispensado');
 const abertoRow=window.__FC_OPEN===i;
 const obsDot=meta&&meta.obs?' 📝':'';
-const completa=!dispensada&&(pagos.length>=vezes||sumPago>=mensal-0.009);
+const naoParciais=pagos.filter(p=>!p.parcial);
+const completa=!dispensada&&(sumPago>=mensal-0.009||(naoParciais.length>=vezes&&!pagos.some(p=>p.parcial)));
 let statusIcon,valHtml,sub='',det='';
-const pagosList=pagos.map(p=>`<div class="row" style="font-size:11px;margin-top:6px;align-items:center"><span class="dim">✓ ${vezes>1?(p.ocorrencia+'ª · '):''}pago em ${(p.paid_date||'').split('-').reverse().join('/')}${p.tx_id?' · da transação':''}</span><span style="white-space:nowrap"><span class="mono green">${fmt(p.valor)}</span> <button class="btn-sm" onclick="fixedCheckUndo('${p.id}')">✕</button></span></div>`).join('');
+const pagosList=pagos.map(p=>`<div class="row" style="font-size:11px;margin-top:6px;align-items:center"><span class="dim">✓ ${vezes>1?(p.ocorrencia+'ª · '):''}pago em ${(p.paid_date||'').split('-').reverse().join('/')}${p.tx_id?' · da transação':''}${p.parcial?' · <b>parcial</b>':''}</span><span style="white-space:nowrap"><span class="mono green">${fmt(p.valor)}</span> <button class="btn-sm" onclick="fixedCheckUndo('${p.id}')">✕</button></span></div>`).join('');
 if(dispensada){
 dispQtd++;
 statusIcon='<span class="dim">🚫</span>';
@@ -1109,11 +1110,12 @@ det=pagosList+`<div class="row" style="margin-top:8px;font-size:11px"><span clas
 pagoTotal+=sumPago;previstoEfetivo+=mensal;
 const resta=Math.max(0,mensal-sumPago);
 abertoTotal+=resta;abertoQtd++;
-const proxValor=(vezes-pagos.length)>0?resta/(vezes-pagos.length):resta;
+const ocorrRestantes=Math.max(1,vezes-naoParciais.length);
+const proxValor=resta/ocorrRestantes;
 const sug=detectFixedTx(f,proxValor);
 statusIcon=pagos.length?'<span class="gold">◐</span>':(sug?'<span class="gold">⚡</span>':'<span class="dim">○</span>');
 valHtml='<span class="mono dim" style="font-size:12px">'+(pagos.length?fmt(sumPago)+' / ':'')+fmt(mensal)+'</span>';
-sub=pagos.length?(pagos.length+' de '+vezes+' pagas · faltam '+fmt(resta)):(sug?'⚡ sugestão encontrada — toque pra conferir':(vezes>1?('0 de '+vezes+' pagas'):'em aberto'));
+sub=pagos.length?(vezes>1?(pagos.length+' de '+vezes+' pagas · faltam '+fmt(resta)):('parcial: '+fmt(sumPago)+' de '+fmt(mensal)+' · faltam '+fmt(resta))):(sug?'⚡ sugestão encontrada — toque pra conferir':(vezes>1?('0 de '+vezes+' pagas'):'em aberto'));
 const valPre=(sug?sug.saldo:proxValor).toFixed(2);
 const datePre=sug?(sug.t.date||hojeFC):hojeFC;
 const temDivSug=sug&&Math.abs(sug.saldo-Number(sug.t.value))>0.009;
@@ -1211,9 +1213,22 @@ const f=(window.__FCA||FC)[i];if(!f)return;
 const val=Number(document.getElementById('fcv-val-'+i)?.value||f.amount);
 const dt=document.getElementById('fcv-date-'+i)?.value||new Date().toISOString().slice(0,10);
 const txId=document.getElementById('fcv-tx-'+i)?.value||null;
-const pagos=FIXED_CHECKS.filter(k=>k.cycle_from===FC_PERIOD.from&&k.forecast_desc===f.desc&&k.status==='pago'&&Number(k.ocorrencia||0)>0);
+const checks=FIXED_CHECKS.filter(k=>k.cycle_from===FC_PERIOD.from&&k.forecast_desc===f.desc);
+const meta=checks.find(k=>Number(k.ocorrencia||0)===0)||null;
+const pagos=checks.filter(k=>k.status==='pago'&&Number(k.ocorrencia||0)>0);
+const mensal=Number(meta?.valor_previsto??f.amount);
+const sumPago=pagos.reduce((s,k)=>s+Number(k.valor||0),0);
+const vezes=Math.max(1,Number(f.vezes||1));
+const naoParciais=pagos.filter(k=>!k.parcial).length;
+let parcial=false;
+if(val+sumPago<mensal-0.009&&(naoParciais+1)>=vezes){
+parcial=confirm(`O valor cobre só parte do que falta (${fmt(Math.max(0,mensal-sumPago))}).\n\nOK = pagamento PARCIAL — a conta continua em aberto pelo restante\nCancelar = considerar a conta quitada com este valor`);
+}
+if(!parcial&&val+sumPago<mensal-0.009){
+for(const p of pagos.filter(k=>k.parcial))await sb.from('fixed_checks').update({parcial:false}).eq('id',p.id);
+}
 const prox=pagos.reduce((m,k)=>Math.max(m,Number(k.ocorrencia||1)),0)+1;
-await sb.from('fixed_checks').insert({cycle_from:FC_PERIOD.from,forecast_desc:f.desc,valor:val,paid_date:dt,tx_id:txId||null,status:'pago',ocorrencia:prox});
+await sb.from('fixed_checks').insert({cycle_from:FC_PERIOD.from,forecast_desc:f.desc,valor:val,paid_date:dt,tx_id:txId||null,status:'pago',ocorrencia:prox,parcial});
 await load();
 };
 window.fixedLinkOpen=(i)=>{
@@ -1233,10 +1248,29 @@ window.fixedLinkConfirm=async(i,txId)=>{
 const f=(window.__FCA||FC)[i];const t=TX.find(x=>x.id===txId);
 if(!f||!t)return;
 $('modal-fixedlink').classList.add('hidden');
-const valorLiq=Math.max(0,saldoOf(t)); // saldo após divisões: só a sua parte pesa na conta fixa
-const pagos=FIXED_CHECKS.filter(k=>k.cycle_from===FC_PERIOD.from&&k.forecast_desc===f.desc&&k.status==='pago'&&Number(k.ocorrencia||0)>0);
+const valorLiq=Math.max(0,saldoOf(t)); // sua parte após divisões
+const checks=FIXED_CHECKS.filter(k=>k.cycle_from===FC_PERIOD.from&&k.forecast_desc===f.desc);
+const meta=checks.find(k=>Number(k.ocorrencia||0)===0)||null;
+const pagos=checks.filter(k=>k.status==='pago'&&Number(k.ocorrencia||0)>0);
+const mensal=Number(meta?.valor_previsto??f.amount);
+const sumPago=pagos.reduce((s,k)=>s+Number(k.valor||0),0);
+const vezes=Math.max(1,Number(f.vezes||1));
+// valor editável: só parte da transação pode ser desta conta
+const valStr=prompt(`Quanto desta transação quita "${f.desc}"?\n(sua parte da transação: ${fmt(valorLiq)} · falta na conta: ${fmt(Math.max(0,mensal-sumPago))})`,valorLiq.toFixed(2));
+if(valStr===null)return;
+const val=Number(valStr.replace(',','.'));
+if(isNaN(val)||val<=0){alert('Valor inválido — nada foi vinculado.');return;}
+const naoParciais=pagos.filter(k=>!k.parcial).length;
+let parcial=false;
+if(val+sumPago<mensal-0.009&&(naoParciais+1)>=vezes){
+parcial=confirm(`O valor cobre só parte do que falta (${fmt(Math.max(0,mensal-sumPago))}).\n\nOK = pagamento PARCIAL — a conta continua em aberto pelo restante\nCancelar = considerar a conta quitada com este valor`);
+}
+if(!parcial&&val+sumPago<mensal-0.009){
+// escolheu "quitada" mesmo abaixo do previsto: parciais anteriores deixam de travar o fechamento
+for(const p of pagos.filter(k=>k.parcial))await sb.from('fixed_checks').update({parcial:false}).eq('id',p.id);
+}
 const prox=pagos.reduce((m,k)=>Math.max(m,Number(k.ocorrencia||1)),0)+1;
-await sb.from('fixed_checks').insert({cycle_from:FC_PERIOD.from,forecast_desc:f.desc,valor:valorLiq,paid_date:t.date,tx_id:txId,status:'pago',ocorrencia:prox});
+await sb.from('fixed_checks').insert({cycle_from:FC_PERIOD.from,forecast_desc:f.desc,valor:val,paid_date:t.date,tx_id:txId,status:'pago',ocorrencia:prox,parcial});
 await load();
 };
 $('btn-close-fixedlink').onclick=()=>$('modal-fixedlink').classList.add('hidden');
