@@ -255,7 +255,7 @@ table.tx-table .split-badge{border-radius:99px;background:rgba(148,163,199,.14);
 <input id="prov-asset" placeholder="Ativo (ex: CDB C6, SCP Empresa X)" list="prov-assets-list">
 <datalist id="prov-assets-list"></datalist>
 <select id="prov-type"><option>Dividendo</option><option>JCP</option><option>Rendimento SCP</option><option>Aluguel</option><option>Juros</option><option>Outro</option></select>
-<input type="number" step="0.01" id="prov-amount" placeholder="Valor (R$)">
+<input type="text" inputmode="decimal" step="0.01" id="prov-amount" placeholder="Valor (R$)">
 <input id="prov-obs" placeholder="Observação (opcional)">
 <button class="btn-outline" id="btn-prov-add" style="margin-top:10px">+ Lançar</button>
 </div>
@@ -265,19 +265,19 @@ table.tx-table .split-badge{border-radius:99px;background:rgba(148,163,199,.14);
 <div class="card">
 <div class="label">Meta de patrimônio</div>
 <div class="msg" style="margin-top:0">Defina o alvo e o sistema calcula o aporte mensal necessário e o progresso — no estilo do plano de aposentadoria.</div>
-<input type="number" id="meta-valor" placeholder="Quero atingir (R$)">
-<input type="number" id="meta-ano" placeholder="Até o ano de (ex: 2030)">
-<input type="number" step="0.1" id="meta-taxa" placeholder="Rentabilidade anual esperada (%)">
+<input type="text" inputmode="decimal" id="meta-valor" placeholder="Quero atingir (R$)">
+<input type="text" inputmode="decimal" id="meta-ano" placeholder="Até o ano de (ex: 2030)">
+<input type="text" inputmode="decimal" step="0.1" id="meta-taxa" placeholder="Rentabilidade anual esperada (%)">
 <button class="btn-outline" id="btn-meta-save" style="margin-top:10px">Salvar meta</button>
 <div id="meta-result"></div>
 </div>
 <div class="card">
 <div class="label">Simulação de aposentadoria</div>
 <div class="msg" style="margin-top:0">Quanto vou ter lá na frente — e quanto isso rende por mês.</div>
-<input type="number" id="sim-aporte" placeholder="Aporte mensal (R$)">
-<input type="number" id="sim-anos" placeholder="Horizonte (anos)">
-<input type="number" step="0.1" id="sim-taxa" placeholder="Rentabilidade anual (%)">
-<input type="number" step="0.1" id="sim-dy" placeholder="Renda anual na fase de usufruto (% a.a.)">
+<input type="text" inputmode="decimal" id="sim-aporte" placeholder="Aporte mensal (R$)">
+<input type="text" inputmode="decimal" id="sim-anos" placeholder="Horizonte (anos)">
+<input type="text" inputmode="decimal" step="0.1" id="sim-taxa" placeholder="Rentabilidade anual (%)">
+<input type="text" inputmode="decimal" step="0.1" id="sim-dy" placeholder="Renda anual na fase de usufruto (% a.a.)">
 <button class="btn-outline" id="btn-sim-run" style="margin-top:10px">Simular</button>
 <div id="sim-result"></div>
 </div>
@@ -422,6 +422,7 @@ table.tx-table .split-badge{border-radius:99px;background:rgba(148,163,199,.14);
 <div class="card" style="width:90%;max-width:400px">
 <div class="label">Dividir transação</div>
 <div class="msg" id="modal-split-desc"></div>
+<div class="dim" style="font-size:10px;margin-top:4px">💡 Campos aceitam fórmula estilo Excel: <span class="mono">=V*0,3</span> (V = valor total) · <span class="mono">=SOMA(10;5)</span> · <span class="mono">=130/3</span></div>
 <div id="modal-split-rows"></div>
 <button class="btn-sm" id="modal-add-person" style="margin-top:8px">+ Pessoa</button>
 <div style="margin-top:12px">
@@ -450,6 +451,47 @@ let CATS=['Outros'];
 const PAY_METHODS=['Conta Corrente','Cartão de Crédito','Boleto','Dinheiro','Outro'];
 const sb=createClient(SB_URL,SB_KEY);
 const $=id=>document.getElementById(id);
+// ===== células de cálculo estilo Excel (=0,3*V · =SOMA(10;5) · =ARRED(100/3;2)) =====
+function calcExcel(raw, base){
+let e=String(raw||'').trim();
+if(!e.startsWith('='))return null;
+e=e.slice(1);
+if(!e||e.length>120)throw new Error('fórmula inválida');
+e=e.replace(/(\d),(?=\d)/g,'$1.').replace(/;/g,',');
+e=e.replace(/(\d+(?:\.\d+)?)\s*%/g,'($1/100)');
+e=e.replace(/\^/g,'@P');
+const RT=['__sum','__avg','__round','__max','__min','__abs','__sqrt','__pow'];
+const MAP=[[/(SOMA|SUM)\s*\(/gi,0],[/(M[EÉ]DIA|AVERAGE)\s*\(/gi,1],[/(ARRED|ROUND)\s*\(/gi,2],[/(M[AÁ]X(?:IMO)?|MAX)\s*\(/gi,3],[/(M[IÍ]N(?:IMO)?|MIN)\s*\(/gi,4],[/ABS\s*\(/gi,5],[/(RAIZ|SQRT)\s*\(/gi,6],[/(POT[EÊ]NCIA|POWER)\s*\(/gi,7]];
+for(const[rx,i]of MAP)e=e.replace(rx,'@'+i+'(');
+e=e.replace(/\b(?:VALOR|V)\b/gi,'@V');
+const probe=e.replace(/@[PV0-9]/g,'');
+if(/[A-Za-zÀ-ú]/.test(probe))throw new Error('função não reconhecida');
+if(!/^[0-9+\-*/().,\s@PV]+$/.test(e))throw new Error('caracteres inválidos');
+e=e.replace(/@P/g,'**').replace(/@V/g,'__V').replace(/@(\d)\(/g,(_,i)=>RT[Number(i)]+'(');
+const __sum=(...a)=>a.reduce((s,x)=>s+Number(x),0);
+const __avg=(...a)=>a.length?__sum(...a)/a.length:0;
+const __round=(x,n=0)=>Math.round(Number(x)*Math.pow(10,n))/Math.pow(10,n);
+const __max=Math.max,__min=Math.min,__abs=Math.abs,__sqrt=Math.sqrt,__pow=Math.pow;
+const __V=Number(base)||0;
+const fn=new Function('__sum','__avg','__round','__max','__min','__abs','__sqrt','__pow','__V','"use strict";return ('+e+');');
+const r=fn(__sum,__avg,__round,__max,__min,__abs,__sqrt,__pow,__V);
+if(typeof r!=='number'||!isFinite(r))throw new Error('resultado inválido');
+return r;
+}
+document.addEventListener('change',e=>{
+const el=e.target;
+if(!el||el.tagName!=='INPUT'||el.getAttribute('inputmode')!=='decimal')return;
+const v=(el.value||'').trim();
+if(v.startsWith('=')){
+try{
+const base=Number(el.dataset.base||el.closest('[data-base]')?.dataset.base||0);
+const r=calcExcel(v,base);
+el.value=(Math.round(r*100)/100).toFixed(2);
+}catch(err){alert('Fórmula inválida: '+err.message+'\nExemplos: =0,3*V · =SOMA(10;5) · =130/3');el.focus();}
+}else if(/^-?\d+,\d+$/.test(v)){
+el.value=v.replace(',','.'); // vírgula decimal digitada vira ponto (leitura numérica segura)
+}
+},true);
 const fmt=n=>'R$ '+Number(n).toLocaleString('pt-BR',{minimumFractionDigits:2});
 const hoje=()=>new Date().toISOString().slice(0,10);
 let TX=[],GOALS={},FC=[],INC=[],PEOPLE=[],SPLITS={},AUDIT=[],PENDING=[],INVESTMENTS=[],BILLS=[],SNAPSHOTS=[],ACERTO_EMAILS=[],FIXED_CHECKS=[],INVEST_INCOMES=[],INVEST_PLAN=null,CDI_PROMISE=null,SHOW_INACTIVE_INV=false,form={type:'expense',category:'Outros',nature:'variavel'};
@@ -1128,7 +1170,7 @@ det=pagosList+`<div class="row" style="margin-top:8px;font-size:11px"><span clas
 ${sugC?`<div style="font-size:11px;margin-top:8px;padding:6px 8px;border:1px solid rgba(231,188,85,.35);border-radius:8px"><span class="gold">⚡</span> ${sugC.t.desc} · ${(sugC.t.date||'').split('-').reverse().join('/')} · <b class="mono">${fmt(sugC.saldo)}</b>${temDivSugC?' <span class="dim">(total '+fmt(sugC.t.value)+' — sua parte após divisão)</span>':''}<br><span class="dim">bateu por: ${sugC.why}${sugC.t.payment_method?' · '+sugC.t.payment_method:''}</span></div>`:''}
 <input type="hidden" id="fcv-tx-${i}" value="${sugC?sugC.t.id:''}">
 <div class="row" style="font-size:11px;margin-top:8px;gap:6px;align-items:center">
-<input type="number" step="0.01" id="fcv-val-${i}" value="${valPreC}" class="mono" style="width:90px;margin-top:0;text-align:right">
+<input type="text" inputmode="decimal" step="0.01" id="fcv-val-${i}" value="${valPreC}" data-base="${mensal}" class="mono" style="width:90px;margin-top:0;text-align:right">
 <input type="date" id="fcv-date-${i}" value="${datePreC}" style="flex:1;margin-top:0">
 </div>
 <div class="row" style="gap:6px;margin-top:8px">
@@ -1155,7 +1197,7 @@ ${sug?`<div style="font-size:11px;margin-top:8px;padding:6px 8px;border:1px soli
 ${meta&&meta.obs?`<div class="dim" style="font-size:11px;margin-top:4px">📝 ${meta.obs}</div>`:''}
 <input type="hidden" id="fcv-tx-${i}" value="${sug?sug.t.id:''}">
 <div class="row" style="font-size:11px;margin-top:8px;gap:6px;align-items:center">
-<input type="number" step="0.01" id="fcv-val-${i}" value="${valPre}" class="mono" style="width:90px;margin-top:0;text-align:right">
+<input type="text" inputmode="decimal" step="0.01" id="fcv-val-${i}" value="${valPre}" data-base="${mensal}" class="mono" style="width:90px;margin-top:0;text-align:right">
 <input type="date" id="fcv-date-${i}" value="${datePre}" style="flex:1;margin-top:0">
 </div>
 <div class="row" style="gap:6px;margin-top:8px">
@@ -1698,7 +1740,7 @@ return `<div style="margin-top:10px;padding:10px;border:1px solid var(--line);bo
 </div>
 <div style="display:flex;justify-content:space-between;align-items:center;gap:8px;margin-top:8px">
 <span class="dim mono" style="font-size:11px">${valorDela!=null?'no relatório: '+fmt(valorDela):''}</span>
-<input type="number" step="0.01" class="ac-final mono" data-g="${group}" data-i="${idx}" value="${Number(valorFinal).toFixed(2)}" style="width:110px;margin-top:0;text-align:right;flex:none" oninput="recalcAcerto()">
+<input type="text" inputmode="decimal" step="0.01" class="ac-final mono" data-g="${group}" data-i="${idx}" value="${Number(valorFinal).toFixed(2)}" style="width:110px;margin-top:0;text-align:right;flex:none" oninput="recalcAcerto()">
 </div>
 ${extra||''}
 </div>`;
@@ -2162,16 +2204,22 @@ $('modal-linksplit').classList.add('hidden');
 await load();
 };
 $('btn-close-linksplit').onclick=()=>$('modal-linksplit').classList.add('hidden');
+function setSplitBase(){
+const txId=$('modal-split').dataset.txid;
+const tx=TX.find(t=>t.id===txId);
+$('modal-split').dataset.base=tx?Number(tx.value):0;
+}
 window.splitFrac=(el,n)=>{
 const txId=$('modal-split').dataset.txid;
 const tx=TX.find(t=>t.id===txId);if(!tx)return;
-const inp=el.closest('.split-row').querySelector('input[type=number]');
+const inp=el.closest('.split-row').querySelector('input[inputmode=decimal]');
 if(inp)inp.value=(Number(tx.value)/n).toFixed(2);
 };
 window.openSplit=async(txId)=>{
 const tx=TX.find(t=>t.id===txId);if(!tx)return;
 $('modal-split-desc').textContent=`${tx.desc} — ${fmt(tx.value)}`;
 $('modal-split').dataset.txid=txId;
+setSplitBase();
 const existing=SPLITS[txId]||[];
 renderSplitRows(existing);
 renderPeopleManageList();
@@ -2180,7 +2228,7 @@ $('modal-split').classList.remove('hidden');
 function renderSplitRows(rows){
 $('modal-split-rows').innerHTML=rows.map((r,i)=>`<div class="split-row">
 <select data-i="${i}" style="min-width:0;flex:1">${PEOPLE.map(p=>`<option value="${p.id}" ${p.id===r.person_id?'selected':''}>${p.name}</option>`).join('')}</select>
-<input type="number" data-i="${i}" value="${r.amount}" style="width:84px" step="0.01">
+<input type="text" inputmode="decimal" data-i="${i}" value="${r.amount}" style="width:84px" step="0.01">
 <span style="display:inline-flex;gap:3px"><button class="btn-sm" style="padding:4px 7px;font-size:10px" title="metade" onclick="splitFrac(this,2)">÷2</button><button class="btn-sm" style="padding:4px 7px;font-size:10px" title="um terço" onclick="splitFrac(this,3)">÷3</button><button class="btn-sm" style="padding:4px 7px;font-size:10px" title="um quarto" onclick="splitFrac(this,4)">÷4</button></span>
 <button class="btn-sm" onclick="this.parentElement.remove()">✕</button>
 </div>`).join('');
@@ -2188,7 +2236,7 @@ $('modal-split-rows').innerHTML=rows.map((r,i)=>`<div class="split-row">
 $('modal-add-person').onclick=()=>{
 if(!PEOPLE.length)return;
 const div=document.createElement('div');div.className='split-row';
-div.innerHTML=`<select style="min-width:0;flex:1">${PEOPLE.map(p=>`<option value="${p.id}">${p.name}</option>`).join('')}</select><input type="number" value="0" style="width:84px" step="0.01"><span style="display:inline-flex;gap:3px"><button class="btn-sm" style="padding:4px 7px;font-size:10px" title="metade" onclick="splitFrac(this,2)">÷2</button><button class="btn-sm" style="padding:4px 7px;font-size:10px" title="um terço" onclick="splitFrac(this,3)">÷3</button><button class="btn-sm" style="padding:4px 7px;font-size:10px" title="um quarto" onclick="splitFrac(this,4)">÷4</button></span><button class="btn-sm" onclick="this.parentElement.remove()">✕</button>`;
+div.innerHTML=`<select style="min-width:0;flex:1">${PEOPLE.map(p=>`<option value="${p.id}">${p.name}</option>`).join('')}</select><input type="text" inputmode="decimal" value="0" style="width:84px" step="0.01"><span style="display:inline-flex;gap:3px"><button class="btn-sm" style="padding:4px 7px;font-size:10px" title="metade" onclick="splitFrac(this,2)">÷2</button><button class="btn-sm" style="padding:4px 7px;font-size:10px" title="um terço" onclick="splitFrac(this,3)">÷3</button><button class="btn-sm" style="padding:4px 7px;font-size:10px" title="um quarto" onclick="splitFrac(this,4)">÷4</button></span><button class="btn-sm" onclick="this.parentElement.remove()">✕</button>`;
 $('modal-split-rows').appendChild(div);
 };
 function renderPeopleManageList(){
@@ -2223,7 +2271,7 @@ $('btn-save-split').onclick=async()=>{
 const txId=$('modal-split').dataset.txid;
 await sb.from('transaction_splits').delete().eq('transaction_id',txId);
 const rows=[...$('modal-split-rows').querySelectorAll('.split-row')];
-const inserts=rows.map(r=>{const sel=r.querySelector('select');const inp=r.querySelector('input[type="number"]');return{transaction_id:txId,person_id:sel.value,amount:parseFloat(inp.value)||0};}).filter(r=>r.amount>0);
+const inserts=rows.map(r=>{const sel=r.querySelector('select');const inp=r.querySelector('input[type="text" inputmode="decimal"]');return{transaction_id:txId,person_id:sel.value,amount:parseFloat(inp.value)||0};}).filter(r=>r.amount>0);
 if(inserts.length)await sb.from('transaction_splits').insert(inserts);
 $('modal-split').classList.add('hidden');load();
 };
@@ -2296,7 +2344,7 @@ renderCatChips();
 };
 $('btn-add-split').onclick=()=>{
 const div=document.createElement('div');div.className='split-row';
-div.innerHTML=`<select style="flex:2">${PEOPLE.map(p=>`<option value="${p.id}">${p.name}</option>`).join('')}</select><input type="number" placeholder="Valor" style="flex:1" step="0.01"><button class="btn-sm" onclick="this.parentElement.remove()">✕</button>`;
+div.innerHTML=`<select style="flex:2">${PEOPLE.map(p=>`<option value="${p.id}">${p.name}</option>`).join('')}</select><input type="text" inputmode="decimal" placeholder="Valor" style="flex:1" step="0.01"><button class="btn-sm" onclick="this.parentElement.remove()">✕</button>`;
 $('split-fields').appendChild(div);
 };
 $('btn-save').onclick=async()=>{
@@ -2309,7 +2357,7 @@ if(error){$('save-msg').textContent='Erro: '+error.message;return;}
 const splitRows=[...$('split-fields').querySelectorAll('.split-row')];
 if(splitRows.length&&inserted&&inserted[0]){
 const txId=inserted[0].id;
-const splits=splitRows.map(r=>{const sel=r.querySelector('select');const inp=r.querySelector('input[type="number"]');return{transaction_id:txId,person_id:sel.value,amount:parseFloat(inp.value)||0};}).filter(s=>s.amount>0);
+const splits=splitRows.map(r=>{const sel=r.querySelector('select');const inp=r.querySelector('input[type="text" inputmode="decimal"]');return{transaction_id:txId,person_id:sel.value,amount:parseFloat(inp.value)||0};}).filter(s=>s.amount>0);
 if(splits.length)await sb.from('transaction_splits').insert(splits);
 }
 $('f-desc').value='';$('f-valor').value='';$('f-data').value=hoje();$('split-fields').innerHTML='';
