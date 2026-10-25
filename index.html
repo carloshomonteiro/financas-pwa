@@ -2271,7 +2271,7 @@ $('btn-save-split').onclick=async()=>{
 const txId=$('modal-split').dataset.txid;
 await sb.from('transaction_splits').delete().eq('transaction_id',txId);
 const rows=[...$('modal-split-rows').querySelectorAll('.split-row')];
-const inserts=rows.map(r=>{const sel=r.querySelector('select');const inp=r.querySelector('input[type="text" inputmode="decimal"]');return{transaction_id:txId,person_id:sel.value,amount:parseFloat(inp.value)||0};}).filter(r=>r.amount>0);
+const inserts=rows.map(r=>{const sel=r.querySelector('select');const inp=r.querySelector('input[inputmode="decimal"]');return{transaction_id:txId,person_id:sel.value,amount:parseFloat(inp.value)||0};}).filter(r=>r.amount>0);
 if(inserts.length)await sb.from('transaction_splits').insert(inserts);
 $('modal-split').classList.add('hidden');load();
 };
@@ -2357,7 +2357,7 @@ if(error){$('save-msg').textContent='Erro: '+error.message;return;}
 const splitRows=[...$('split-fields').querySelectorAll('.split-row')];
 if(splitRows.length&&inserted&&inserted[0]){
 const txId=inserted[0].id;
-const splits=splitRows.map(r=>{const sel=r.querySelector('select');const inp=r.querySelector('input[type="text" inputmode="decimal"]');return{transaction_id:txId,person_id:sel.value,amount:parseFloat(inp.value)||0};}).filter(s=>s.amount>0);
+const splits=splitRows.map(r=>{const sel=r.querySelector('select');const inp=r.querySelector('input[inputmode="decimal"]');return{transaction_id:txId,person_id:sel.value,amount:parseFloat(inp.value)||0};}).filter(s=>s.amount>0);
 if(splits.length)await sb.from('transaction_splits').insert(splits);
 }
 $('f-desc').value='';$('f-valor').value='';$('f-data').value=hoje();$('split-fields').innerHTML='';
