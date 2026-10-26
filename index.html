@@ -487,9 +487,19 @@ try{
 const base=Number(el.dataset.base||el.closest('[data-base]')?.dataset.base||0);
 const r=calcExcel(v,base);
 el.value=(Math.round(r*100)/100).toFixed(2);
+el.dataset.formula=v; // histórico da fórmula: focar no campo traz ela de volta pra edição
+el.title='ƒ '+v;
 }catch(err){alert('Fórmula inválida: '+err.message+'\nExemplos: =0,3*V · =SOMA(10;5) · =130/3');el.focus();}
-}else if(/^-?\d+,\d+$/.test(v)){
-el.value=v.replace(',','.'); // vírgula decimal digitada vira ponto (leitura numérica segura)
+}else{
+if(/^-?\d+,\d+$/.test(v))el.value=v.replace(',','.'); // vírgula decimal digitada vira ponto
+delete el.dataset.formula;el.removeAttribute('title'); // valor digitado à mão substitui a fórmula
+}
+},true);
+document.addEventListener('focusin',e=>{
+const el=e.target;
+if(el&&el.tagName==='INPUT'&&el.dataset&&el.dataset.formula){
+el.value=el.dataset.formula;
+setTimeout(()=>{try{el.select();}catch(_){}} ,0);
 }
 },true);
 const fmt=n=>'R$ '+Number(n).toLocaleString('pt-BR',{minimumFractionDigits:2});
@@ -2228,9 +2238,10 @@ $('modal-split').classList.remove('hidden');
 function renderSplitRows(rows){
 $('modal-split-rows').innerHTML=rows.map((r,i)=>`<div class="split-row">
 <select data-i="${i}" style="min-width:0;flex:1">${PEOPLE.map(p=>`<option value="${p.id}" ${p.id===r.person_id?'selected':''}>${p.name}</option>`).join('')}</select>
-<input type="text" inputmode="decimal" data-i="${i}" value="${r.amount}" style="width:84px" step="0.01">
+<input type="text" inputmode="decimal" data-i="${i}" value="${r.amount}" ${r.formula?`data-formula="${r.formula}" title="ƒ ${r.formula}"`:''} style="width:84px" step="0.01">
 <span style="display:inline-flex;gap:3px"><button class="btn-sm" style="padding:4px 7px;font-size:10px" title="metade" onclick="splitFrac(this,2)">÷2</button><button class="btn-sm" style="padding:4px 7px;font-size:10px" title="um terço" onclick="splitFrac(this,3)">÷3</button><button class="btn-sm" style="padding:4px 7px;font-size:10px" title="um quarto" onclick="splitFrac(this,4)">÷4</button></span>
 <button class="btn-sm" onclick="this.parentElement.remove()">✕</button>
+${r.formula?`<span class="dim" style="flex-basis:100%;font-size:10px;margin-top:-2px">ƒ ${r.formula}</span>`:''}
 </div>`).join('');
 }
 $('modal-add-person').onclick=()=>{
@@ -2271,7 +2282,7 @@ $('btn-save-split').onclick=async()=>{
 const txId=$('modal-split').dataset.txid;
 await sb.from('transaction_splits').delete().eq('transaction_id',txId);
 const rows=[...$('modal-split-rows').querySelectorAll('.split-row')];
-const inserts=rows.map(r=>{const sel=r.querySelector('select');const inp=r.querySelector('input[inputmode="decimal"]');return{transaction_id:txId,person_id:sel.value,amount:parseFloat(inp.value)||0};}).filter(r=>r.amount>0);
+const inserts=rows.map(r=>{const sel=r.querySelector('select');const inp=r.querySelector('input[inputmode="decimal"]');return{transaction_id:txId,person_id:sel.value,amount:parseFloat(inp.value)||0,formula:inp.dataset.formula||null};}).filter(r=>r.amount>0);
 if(inserts.length)await sb.from('transaction_splits').insert(inserts);
 $('modal-split').classList.add('hidden');load();
 };
@@ -2357,7 +2368,7 @@ if(error){$('save-msg').textContent='Erro: '+error.message;return;}
 const splitRows=[...$('split-fields').querySelectorAll('.split-row')];
 if(splitRows.length&&inserted&&inserted[0]){
 const txId=inserted[0].id;
-const splits=splitRows.map(r=>{const sel=r.querySelector('select');const inp=r.querySelector('input[inputmode="decimal"]');return{transaction_id:txId,person_id:sel.value,amount:parseFloat(inp.value)||0};}).filter(s=>s.amount>0);
+const splits=splitRows.map(r=>{const sel=r.querySelector('select');const inp=r.querySelector('input[inputmode="decimal"]');return{transaction_id:txId,person_id:sel.value,amount:parseFloat(inp.value)||0,formula:inp.dataset.formula||null};}).filter(s=>s.amount>0);
 if(splits.length)await sb.from('transaction_splits').insert(splits);
 }
 $('f-desc').value='';$('f-valor').value='';$('f-data').value=hoje();$('split-fields').innerHTML='';
